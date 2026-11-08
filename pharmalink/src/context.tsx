@@ -6,6 +6,7 @@ import {
   useCallback,
 } from "react";
 import type { ReactNode } from "react";
+import { CheckCircle2, AlertCircle, X } from "lucide-react";
 import type { State, Account } from "./domain/types";
 import type { Command } from "./domain/engine";
 import { repository, STORAGE_KEY } from "./data/repository";
@@ -96,13 +97,39 @@ export function AppProvider({ children }: { children: ReactNode }) {
     >
       {children}
       {(error || loadError) && (
-        <div role="alert" className="toast error" onClick={() => setError("")}>
-          {error || loadError}
+        <div className="toast-wrap">
+          <div role="alert" className="toast error" onClick={() => setError("")}>
+            <AlertCircle size={20} className="text-red-300 flex-shrink-0" />
+            <span>{error || loadError}</span>
+            <button
+              className="toast-close"
+              aria-label="إغلاق التنبيه"
+              onClick={(e) => {
+                e.stopPropagation();
+                setError("");
+              }}
+            >
+              <X size={15} />
+            </button>
+          </div>
         </div>
       )}
       {message && (
-        <div role="status" className="toast">
-          {message}
+        <div className="toast-wrap">
+          <div role="status" className="toast success" onClick={() => setMessage("")}>
+            <CheckCircle2 size={20} className="text-teal-300 flex-shrink-0" />
+            <span>{message}</span>
+            <button
+              className="toast-close"
+              aria-label="إغلاق التنبيه"
+              onClick={(e) => {
+                e.stopPropagation();
+                setMessage("");
+              }}
+            >
+              <X size={15} />
+            </button>
+          </div>
         </div>
       )}
     </C.Provider>

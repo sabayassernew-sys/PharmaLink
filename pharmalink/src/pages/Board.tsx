@@ -37,7 +37,7 @@ export function Board() {
   );
   const candidates = visibleItems(state, actor).filter(
     (i) =>
-      eligible(i) &&
+      eligible(i, state) &&
       available(state, i.id) > 0 &&
       i.branchId !== respond?.branchId,
   );

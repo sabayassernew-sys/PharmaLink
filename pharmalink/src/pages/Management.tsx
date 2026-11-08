@@ -22,6 +22,11 @@ import {
   Trash2,
   Percent,
   ShieldAlert,
+  Coins,
+  Sliders,
+  TrendingUp,
+  CalendarDays,
+  Receipt,
 } from "lucide-react";
 import { compressAvatar, PRESET_AVATARS } from "../domain/avatars";
 import { useApp } from "../context";
@@ -48,6 +53,137 @@ import {
   PageTitle,
   money,
 } from "../components/UI";
+
+export function PlatformSettingsControl() {
+  const { state, actor, run, busy, notify } = useApp();
+  const currentFee =
+    state.platformFeePercent !== undefined ? state.platformFeePercent : 1.5;
+  const currentMinDays =
+    state.minExpiryDays !== undefined ? state.minExpiryDays : 30;
+
+  const [fee, setFee] = useState<number | "">(currentFee);
+  const [minDays, setMinDays] = useState<number | "">(currentMinDays);
+
+  useEffect(() => {
+    setFee(
+      state.platformFeePercent !== undefined ? state.platformFeePercent : 1.5,
+    );
+    setMinDays(state.minExpiryDays !== undefined ? state.minExpiryDays : 30);
+  }, [state.platformFeePercent, state.minExpiryDays]);
+
+  if (actor.role !== "admin") return null;
+
+  return (
+    <Card className="p-6 border border-teal-200/80 bg-gradient-to-br from-white to-slate-50 shadow-sm mb-6">
+      <div className="flex items-center gap-2.5 pb-3 border-b border-slate-200 mb-4">
+        <Sliders className="text-teal-600" size={22} />
+        <div>
+          <h3 className="m-0 text-base font-bold text-slate-800">
+            السياسات العامة وإعدادات المنصة (خاص بالإدارة)
+          </h3>
+          <p className="text-xs text-slate-500 m-0">
+            تحكم مركزي مباشر في نسبة عمولة المنصة على التداولات، وضابط الحد الأدنى لصلاحية الأدوية المسموح بنشرها.
+          </p>
+        </div>
+      </div>
+
+      <Form
+        onSubmit={async (f) => {
+          const rawFee = f.get("fee");
+          const rawDays = f.get("minDays");
+          const feePercent =
+            rawFee === "" || rawFee === null ? undefined : Number(rawFee);
+          const minExpiryDays =
+            rawDays === "" || rawDays === null ? undefined : Number(rawDays);
+
+          if (
+            await run({
+              type: "setPlatformSettings",
+              feePercent,
+              minExpiryDays,
+            })
+          ) {
+            notify("تم حفظ وتطبيق سياسات المنصة بنجاح");
+          }
+        }}
+      >
+        <div className="grid md:grid-cols-2 gap-4 mb-4">
+          <div className="bg-white p-4 rounded-xl border border-slate-200">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-bold text-slate-800 flex items-center gap-1.5">
+                <Percent size={16} className="text-teal-600" />
+                نسبة عمولة المنصة على الصفقات
+              </span>
+              <span className="bg-teal-50 text-teal-800 font-bold px-2 py-0.5 rounded text-xs border border-teal-200">
+                الحالي: {currentFee}٪
+              </span>
+            </div>
+            <p className="text-xs text-slate-500 mb-3 leading-relaxed">
+              تُحسب هذه النسبة تلقائياً على كل طلب شراء مكتمل في البورصة وتُودع في رصيد أرباح المنصة.
+            </p>
+            <label className="field m-0">
+              <span>نسبة العمولة (٪)</span>
+              <input
+                name="fee"
+                type="number"
+                min={0}
+                max={20}
+                step={0.1}
+                required
+                value={fee}
+                onChange={(e) =>
+                  setFee(e.target.value === "" ? "" : Number(e.target.value))
+                }
+              />
+            </label>
+          </div>
+
+          <div className="bg-white p-4 rounded-xl border border-slate-200">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-bold text-slate-800 flex items-center gap-1.5">
+                <CalendarDays size={16} className="text-teal-600" />
+                الحد الأدنى لصلاحية الأدوية للنشر
+              </span>
+              <span className="bg-amber-50 text-amber-800 font-bold px-2 py-0.5 rounded text-xs border border-amber-200">
+                الحالي: {currentMinDays} يوم
+              </span>
+            </div>
+            <p className="text-xs text-slate-500 mb-3 leading-relaxed">
+              يمنع النظام الصيدليات تلقائياً من نشر أي دواء في البورصة إذا كانت صلاحيته المتبقية أقل من هذا الحد.
+            </p>
+            <label className="field m-0">
+              <span>الحد الأدنى للأيام المتبقية (يوم)</span>
+              <input
+                name="minDays"
+                type="number"
+                min={1}
+                max={365}
+                step={1}
+                required
+                value={minDays}
+                onChange={(e) =>
+                  setMinDays(
+                    e.target.value === "" ? "" : Number(e.target.value),
+                  )
+                }
+              />
+            </label>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+          <p className="text-xs text-slate-500 m-0">
+            * تسري هذه السياسات فوراً على كافة عمليات النشر والشراء اللاحقة في النظام.
+          </p>
+          <Button disabled={busy} type="submit">
+            تحديث وحفظ سياسات المنصة
+          </Button>
+        </div>
+      </Form>
+    </Card>
+  );
+}
+
 export function Management({
   mode,
 }: {
@@ -106,15 +242,21 @@ export function Management({
     <>
       <PageTitle
         eyebrow="فارما لينك"
-        title={titles[mode]}
+        title={
+          mode === "reports" && actor.role === "admin"
+            ? "التقارير المالية وأرباح المنصة"
+            : titles[mode]
+        }
         description={
-          mode === "settings"
-            ? "إدارة وتحديث بيانات المنشأة الصيدلانية، الشعار المعتمد، وسياسات التشغيل والخصم."
-            : mode === "verification"
-              ? "مراجعة تسجيل المنشآت؛ الموافقة هنا تجريبية وليست تحققًا رسميًا من الترخيص."
-              : mode === "brand"
-                ? "الكحلي للثقة، والفيروزي للتواصل وتدوير المخزون."
-                : "معلومات وإجراءات وفق نطاق صلاحية الحساب."
+          mode === "reports" && actor.role === "admin"
+            ? "متابعة إيرادات وعمولات المنصة المحصلة من التداولات، وحجم الصفقات المنفذة، وسجل محاسبي تفصيلي."
+            : mode === "settings"
+              ? "إدارة وتحديث بيانات المنشأة الصيدلانية، الشعار المعتمد، وسياسات التشغيل والخصم."
+              : mode === "verification"
+                ? "مراجعة تسجيل المنشآت؛ الموافقة هنا تجريبية وليست تحققًا رسميًا من الترخيص."
+                : mode === "brand"
+                  ? "الكحلي للثقة، والفيروزي للتواصل وتدوير المخزون."
+                  : "معلومات وإجراءات وفق نطاق صلاحية الحساب."
         }
         actions={
           mode === "branches" ? (
@@ -1165,82 +1307,288 @@ export function Management({
         </Card>
       )}
       {mode === "reports" && (
-        <>
-          <div className="grid md:grid-cols-3 gap-5 mb-5">
-            <Card>
-              <p>قيمة المخزون بالتكلفة المرجعية</p>
-              <strong className="stat-number">
-                {money(
-                  visibleItems(state, actor).reduce(
-                    (n, i) => n + i.quantity * i.price,
-                    0,
-                  ),
-                )}
-              </strong>
-              <small>ليست أرباحًا أو قيمة أموال منقذة</small>
-            </Card>
-            <Card>
-              <p>مناقلات مكتملة</p>
-              <strong className="stat-number">
-                {
-                  visibleTransfers(state, actor).filter(
-                    (t) => t.status === "completed",
-                  ).length
-                }
-              </strong>
-            </Card>
-            <Card>
-              <p>اختلافات مفتوحة</p>
-              <strong className="stat-number">
-                {
-                  visibleTransfers(state, actor).filter(
-                    (t) => t.status === "discrepancy",
-                  ).length
-                }
-              </strong>
-            </Card>
+        actor.role === "admin" ? (
+          <div className="space-y-6">
+            <PlatformSettingsControl />
+
+            {/* Platform Financial Statistics */}
+            {(() => {
+              const completedOrders = state.orders.filter((o) =>
+                ["completed", "received", "settled"].includes(o.status as any),
+              );
+              const totalVolume = completedOrders.reduce(
+                (sum, o) => sum + (o.amount || 0),
+                0,
+              );
+              const ledgerTotal = (state.feeLedger || []).reduce(
+                (sum, e) => sum + e.fee,
+                0,
+              );
+              const totalEarnings =
+                state.feeBalance !== undefined && state.feeBalance > 0
+                  ? state.feeBalance
+                  : ledgerTotal > 0
+                    ? ledgerTotal
+                    : completedOrders.reduce((sum, o) => sum + (o.fee || 0), 0);
+              const activeFee =
+                state.platformFeePercent !== undefined
+                  ? state.platformFeePercent
+                  : 1.5;
+              const minDays =
+                state.minExpiryDays !== undefined
+                  ? state.minExpiryDays
+                  : 30;
+
+              const getBranchName = (bId: string) =>
+                state.branches.find((b) => b.id === bId)?.name || bId;
+
+              const ledgerEntries =
+                state.feeLedger && state.feeLedger.length > 0
+                  ? state.feeLedger.slice().reverse()
+                  : completedOrders.map((o) => ({
+                      id: o.id,
+                      orderId: o.id,
+                      amount: o.amount,
+                      fee: o.fee || (o.amount * activeFee) / 100,
+                      feePercent: activeFee,
+                      sellerBranchId: o.seller,
+                      buyerBranchId: o.buyer,
+                      at: o.created,
+                    })).reverse();
+
+              return (
+                <>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <Card className="p-4 border-emerald-100 bg-gradient-to-br from-white to-emerald-50/30">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs font-semibold text-slate-500">
+                          إجمالي أرباح وعمولات المنصة
+                        </span>
+                        <div className="p-2 rounded-xl bg-emerald-100/70 text-emerald-700">
+                          <Coins size={18} />
+                        </div>
+                      </div>
+                      <strong className="text-2xl font-black text-emerald-700 block">
+                        {money(totalEarnings)}
+                      </strong>
+                      <small className="text-[11px] text-slate-400 mt-1 block">
+                        محصلة من التداولات المنفذة
+                      </small>
+                    </Card>
+
+                    <Card className="p-4 border-teal-100 bg-gradient-to-br from-white to-teal-50/30">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs font-semibold text-slate-500">
+                          إجمالي حجم التداولات المنفذة
+                        </span>
+                        <div className="p-2 rounded-xl bg-teal-100/70 text-teal-700">
+                          <TrendingUp size={18} />
+                        </div>
+                      </div>
+                      <strong className="text-2xl font-black text-[#073B59] block">
+                        {money(totalVolume)}
+                      </strong>
+                      <small className="text-[11px] text-slate-400 mt-1 block">
+                        إجمالي قيمة صفقات البورصة المكتملة
+                      </small>
+                    </Card>
+
+                    <Card className="p-4 border-blue-100 bg-gradient-to-br from-white to-blue-50/30">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs font-semibold text-slate-500">
+                          نسبة العمولة المعتمدة
+                        </span>
+                        <div className="p-2 rounded-xl bg-blue-100/70 text-blue-700">
+                          <Percent size={18} />
+                        </div>
+                      </div>
+                      <strong className="text-2xl font-black text-blue-700 block">
+                        {activeFee}٪
+                      </strong>
+                      <small className="text-[11px] text-slate-400 mt-1 block">
+                        محددة من قبل المدير في النظام
+                      </small>
+                    </Card>
+
+                    <Card className="p-4 border-amber-100 bg-gradient-to-br from-white to-amber-50/30">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs font-semibold text-slate-500">
+                          الحد الأدنى لصلاحية النشر
+                        </span>
+                        <div className="p-2 rounded-xl bg-amber-100/70 text-amber-700">
+                          <CalendarDays size={18} />
+                        </div>
+                      </div>
+                      <strong className="text-2xl font-black text-amber-700 block">
+                        {minDays} يومًا
+                      </strong>
+                      <small className="text-[11px] text-slate-400 mt-1 block">
+                        يمنع نشر ما يقل عن هذا الحد
+                      </small>
+                    </Card>
+                  </div>
+
+                  {/* Fee Ledger Card */}
+                  <Card className="p-5">
+                    <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-200 mb-4">
+                      <div className="flex items-center gap-2">
+                        <Receipt className="text-teal-600" size={20} />
+                        <div>
+                          <h3 className="m-0 text-base font-bold text-slate-800">
+                            سجل عمولات وأرباح المنصة (Fee Ledger)
+                          </h3>
+                          <p className="text-xs text-slate-500 m-0">
+                            سجل مالي مفصل لكل عملية بيع وشراء مكتملة مع احتساب عمولة المنصة وحالة التحصيل.
+                          </p>
+                        </div>
+                      </div>
+                      <Badge tone="blue">
+                        عدد العمليات: {ledgerEntries.length}
+                      </Badge>
+                    </div>
+
+                    {ledgerEntries.length === 0 ? (
+                      <Empty
+                        title="لا توجد عمليات عمولة مسجلة بعد"
+                        description="عند استلام وتأكيد أي صفقة شراء في البورصة، ستُقيد العمولة فوراً في هذا السجل."
+                      />
+                    ) : (
+                      <div className="table-wrap">
+                        <table>
+                          <thead>
+                            <tr>
+                              <th>التاريخ والوقت</th>
+                              <th>رقم العملية</th>
+                              <th>الصيدلية البائعة</th>
+                              <th>الصيدلية المشترية</th>
+                              <th>قيمة الصفقة</th>
+                              <th>نسبة العمولة</th>
+                              <th>عمولة المنصة</th>
+                              <th>الحالة</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {ledgerEntries.map((entry) => (
+                              <tr key={entry.id}>
+                                <td className="text-xs whitespace-nowrap">
+                                  {new Date(entry.at).toLocaleString("ar-YE")}
+                                </td>
+                                <td>
+                                  <span className="font-mono text-xs bg-slate-100 px-2 py-0.5 rounded text-slate-700">
+                                    {entry.orderId.slice(-8)}
+                                  </span>
+                                </td>
+                                <td className="font-semibold text-slate-800">
+                                  {getBranchName(entry.sellerBranchId)}
+                                </td>
+                                <td className="text-slate-700">
+                                  {getBranchName(entry.buyerBranchId)}
+                                </td>
+                                <td className="font-semibold">
+                                  {money(entry.amount)}
+                                </td>
+                                <td>
+                                  <span className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded font-bold">
+                                    {entry.feePercent}٪
+                                  </span>
+                                </td>
+                                <td className="font-bold text-emerald-700">
+                                  {money(entry.fee)}
+                                </td>
+                                <td>
+                                  <Badge tone="success">
+                                    محققة ومودعة
+                                  </Badge>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </Card>
+                </>
+              );
+            })()}
           </div>
-          <Card>
-            <h3>ملخص المخزون بحسب الفرع</h3>
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>الفرع</th>
-                    <th>بنود المخزون</th>
-                    <th>بنود بها حجز</th>
-                    <th>قيمة مرجعية</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {branches.map((b) => {
-                    const items = visibleItems(state, actor).filter(
-                      (i) => i.branchId === b.id,
-                    );
-                    return (
-                      <tr key={b.id}>
-                        <td>{b.name}</td>
-                        <td>{items.length}</td>
-                        <td>
-                          {
-                            items.filter(
-                              (i) => available(state, i.id) < i.quantity,
-                            ).length
-                          }
-                        </td>
-                        <td>
-                          {money(
-                            items.reduce((n, i) => n + i.quantity * i.price, 0),
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+        ) : (
+          <>
+            <div className="grid md:grid-cols-3 gap-5 mb-5">
+              <Card>
+                <p>قيمة المخزون بالتكلفة المرجعية</p>
+                <strong className="stat-number">
+                  {money(
+                    visibleItems(state, actor).reduce(
+                      (n, i) => n + i.quantity * i.price,
+                      0,
+                    ),
+                  )}
+                </strong>
+                <small>ليست أرباحًا أو قيمة أموال منقذة</small>
+              </Card>
+              <Card>
+                <p>مناقلات مكتملة</p>
+                <strong className="stat-number">
+                  {
+                    visibleTransfers(state, actor).filter(
+                      (t) => t.status === "completed",
+                    ).length
+                  }
+                </strong>
+              </Card>
+              <Card>
+                <p>اختلافات مفتوحة</p>
+                <strong className="stat-number">
+                  {
+                    visibleTransfers(state, actor).filter(
+                      (t) => t.status === "discrepancy",
+                    ).length
+                  }
+                </strong>
+              </Card>
             </div>
-          </Card>
-        </>
+            <Card>
+              <h3>ملخص المخزون بحسب الفرع</h3>
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>الفرع</th>
+                      <th>بنود المخزون</th>
+                      <th>بنود بها حجز</th>
+                      <th>قيمة مرجعية</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {branches.map((b) => {
+                      const items = visibleItems(state, actor).filter(
+                        (i) => i.branchId === b.id,
+                      );
+                      return (
+                        <tr key={b.id}>
+                          <td>{b.name}</td>
+                          <td>{items.length}</td>
+                          <td>
+                            {
+                              items.filter(
+                                (i) => available(state, i.id) < i.quantity,
+                              ).length
+                            }
+                          </td>
+                          <td>
+                            {money(
+                              items.reduce((n, i) => n + i.quantity * i.price, 0),
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          </>
+        )
       )}
       {mode === "settings" && (
         <div className="space-y-6">
@@ -1552,7 +1900,12 @@ export function Management({
               </div>
             ))}
 
-            {actor.role === "admin" && <BackupTools />}
+            {actor.role === "admin" && (
+              <>
+                <PlatformSettingsControl />
+                <BackupTools />
+              </>
+            )}
 
           {/* 3. Preset Avatar Picker Modal */}
           {presetModal && (

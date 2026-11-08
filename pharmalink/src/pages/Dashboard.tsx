@@ -26,6 +26,7 @@ import {
   PageTitle,
   SectionTitle,
   Status,
+  TransferStatusBadge,
   number,
 } from "../components/UI";
 export function Dashboard({ navigate }: { navigate: (s: string) => void }) {
@@ -37,15 +38,11 @@ export function Dashboard({ navigate }: { navigate: (s: string) => void }) {
   ).length;
   const action = transfers.filter(
     (t) =>
-      (actor.role === "agency_master" &&
-        !t.managementApproved &&
-        ["pending", "management"].includes(t.status)) ||
+      (actor.role === "agency_master" && t.status === "discrepancy") ||
       (actor.branchId === t.from &&
-        (!t.senderApproved || t.status === "ready") &&
-        ["pending", "management", "ready"].includes(t.status)) ||
+        ((!t.senderApproved && t.status === "pending") || t.status === "ready")) ||
       (actor.branchId === t.to &&
-        (!t.receiverApproved || t.status === "sent") &&
-        ["pending", "sent"].includes(t.status)),
+        ((!t.receiverApproved && t.status === "pending") || t.status === "sent")),
   );
   const near = items.filter(
       (i) => daysLeft(i.expiry) >= 0 && daysLeft(i.expiry) <= 90,
@@ -230,7 +227,11 @@ export function Dashboard({ navigate }: { navigate: (s: string) => void }) {
                   <strong>{t.lines[0]?.name}</strong>
                   <small>{t.code}</small>
                 </div>
-                <Status value={t.status} />
+                <TransferStatusBadge
+                  transfer={t}
+                  branchId={actor.branchId}
+                  isMaster={actor.role === "agency_master"}
+                />
                 <button
                   aria-label="فتح المناقلات"
                   className="icon-btn"

@@ -123,14 +123,12 @@ describe("دورة المناقلة والحجز", () => {
     expect(available(s, "test")).toBe(25);
     expect(s.reservations).toHaveLength(0);
   });
-  it("يشترط موافقة الطرفين والإدارة", () => {
+  it("يشترط موافقة طرفي المناقلة (الفرعين) دون الحاجة لموافقة الإدارة", () => {
     let s = request(fixture());
     const id = s.transfers[0].id;
     s = go(s, { type: "approveTransfer", id });
     expect(s.transfers[0].status).toBe("pending");
     s = go(s, { type: "approveTransfer", id }, "branch-sabeen");
-    expect(s.transfers[0].status).toBe("management");
-    s = go(s, { type: "approveTransfer", id }, "master");
     expect(s.transfers[0].status).toBe("ready");
   });
   it("يفوض الفروع مع حفظ سياسة العملية", () => {

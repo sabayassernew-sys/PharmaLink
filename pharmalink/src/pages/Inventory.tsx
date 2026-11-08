@@ -266,11 +266,11 @@ export function Inventory({
                         {i.name}
                       </button>
                       <small>{i.ingredient}</small>
-                      {!eligible(i) && (
+                      {!eligible(i, state) && (
                         <Badge tone="warning">
                           {i.cold
                             ? "تبريد • خارج نطاق التداول"
-                            : days < 30
+                            : days < (state.minExpiryDays ?? 30)
                               ? "صلاحية غير مؤهلة"
                               : "موقوف"}
                         </Badge>
@@ -412,9 +412,9 @@ export function Inventory({
                     </dd>
                     <dt>إمكانية البيع / المناقلة</dt>
                     <dd>
-                      {eligible(current)
+                      {eligible(current, state)
                         ? "مؤهل وفق سياسة النسخة"
-                        : eligibilityReasons(current).join(" · ")}
+                        : eligibilityReasons(current, state).join(" · ")}
                     </dd>
                     <dt>الفائض الداخلي</dt>
                     <dd>
@@ -540,7 +540,7 @@ export function Inventory({
                     defaultValue={1}
                   />
                   <Field label="ملاحظة للفروع" name="notes" required={false} />
-                  <Button type="submit" disabled={busy || !eligible(current)}>
+                  <Button type="submit" disabled={busy || !eligible(current, state)}>
                     حفظ إعلان الفائض
                   </Button>
                 </Form>
@@ -587,7 +587,7 @@ export function Inventory({
                   />
                   <Field label="ملاحظة" name="note" required={false} />
                   <p>لا تخصم الكمية بمجرد الطلب. يلزم إكمال الموافقات.</p>
-                  <Button type="submit" disabled={busy || !eligible(current)}>
+                  <Button type="submit" disabled={busy || !eligible(current, state)}>
                     إرسال طلب المناقلة
                   </Button>
                 </Form>

@@ -134,6 +134,7 @@ export interface Transfer {
   created: string;
   sentAt?: string;
   receivedAt?: string;
+  rejectedBy?: string;
 }
 export interface Reservation {
   id: string;
@@ -212,6 +213,16 @@ export interface ImportResult {
   updated: number;
   suspended: number;
 }
+export interface FeeEntry {
+  id: string;
+  orderId: string;
+  amount: number;
+  fee: number;
+  feePercent: number;
+  sellerBranchId: string;
+  buyerBranchId: string;
+  at: string;
+}
 export interface State {
   version: 2;
   revision: number;
@@ -225,7 +236,10 @@ export interface State {
   sales: Sale[];
   orders: Order[];
   wallets: Wallet[];
+  platformFeePercent?: number;
+  minExpiryDays?: number;
   feeBalance?: number;
+  feeLedger?: FeeEntry[];
   walletMovements?: {
     id: string;
     at: string;

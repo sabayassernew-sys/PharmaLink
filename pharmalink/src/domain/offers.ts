@@ -38,7 +38,7 @@ export function radarMatches(
       i &&
       b?.active &&
       x.status === "published" &&
-      eligible(i) &&
+      eligible(i, s) &&
       remaining(s, x) > 0 &&
       i.branchId !== a.branchId &&
       (!a.chainId || b.chainId !== a.chainId) &&

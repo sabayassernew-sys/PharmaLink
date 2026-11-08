@@ -1,7 +1,7 @@
 import { committed, editableOffer } from "./offers";
 import { importKey, importBlocked } from "./imports";
 import type { State, Account, Line, Receipt, ImportRow, KYCDocument } from "./types";
-import { available, ownsBranch, member, eligible } from "./access";
+import { available, ownsBranch, member, eligible, eligibilityReasons } from "./access";
 export type Command =
   | { type: "addItem"; branchId: string; row: ImportRow }
   | { type: "setBlock"; itemId: string; blocked: boolean; reason: string }
@@ -180,6 +180,11 @@ export type Command =
       taxNumber?: string;
       licenseExpiry?: string;
       documents?: KYCDocument[];
+    }
+  | {
+      type: "setPlatformSettings";
+      feePercent?: number;
+      minExpiryDays?: number;
     };
 function check(ok: unknown, message: string): asserts ok {
   if (!ok) throw new Error(message);
@@ -620,7 +625,7 @@ export function transact(
         "البيع بالعبوة الكاملة فقط",
       );
       check(
-        eligible(i) &&
+        eligible(i, s) &&
           command.quantity <= available(s, i.id) &&
           command.quantity % factor === 0,
         "كمية غير متاحة أو ليست مضاعف وحدة البيع",
@@ -786,7 +791,7 @@ export function transact(
         check(command.itemId, "اختر بندًا");
         const i = item(command.itemId);
         check(
-          i.branchId === command.branchId && eligible(i),
+          i.branchId === command.branchId && eligible(i, s),
           "الصنف غير مؤهل: راجع الملكية أو التخزين أو الصلاحية",
         );
         check(command.quantity <= available(s, i.id), "الفائض يتجاوز المتاح");
@@ -865,7 +870,9 @@ export function transact(
       const lines = command.items.map((l) => {
         whole(l.quantity);
         const i = item(l.itemId);
-        check(i.branchId === from.id && eligible(i), "بند غير مؤهل للمناقلة");
+        check(i.branchId === from.id, "البند لا ينتمي للفرع المصدر");
+        const reasons = eligibilityReasons(i, s);
+        check(reasons.length === 0, `بند غير مؤهل للمناقلة: ${reasons.join(" · ")}`);
         check(l.quantity <= available(s, i.id), "الكمية تتجاوز المتاح");
         return {
           itemId: i.id,
@@ -907,8 +914,8 @@ export function transact(
         creator: actor.id,
         policy: chain.policy,
         senderApproved: false,
-        receiverApproved: actor.branchId === to.id,
-        managementApproved: actor.role === "agency_master",
+        receiverApproved: false,
+        managementApproved: true,
         status: "pending",
         lines,
         postId: command.postId,
@@ -921,45 +928,39 @@ export function transact(
     case "approveTransfer": {
       const t = transfer(command.id);
       check(
-        ["pending", "management"].includes(t.status),
+        ["pending", "ready"].includes(t.status),
         "الحالة لا تقبل الاعتماد",
       );
       if (actor.role === "agency_master") {
         manage(t.chainId);
         t.managementApproved = true;
-      } else {
-        check(
-          member(actor) && [t.from, t.to].includes(actor.branchId || ""),
-          "ليس لك اعتماد هذه المناقلة",
-        );
-        if (actor.branchId === t.from) {
-          check(!t.senderApproved, "تخصيص المرسل معتمد سابقًا");
-          for (const l of t.lines) {
-            check(eligible(item(l.itemId)), "الصنف لم يعد مؤهلًا");
-            reserve(l.itemId, l.quantity, t.id, "transfer");
-          }
-          if (t.postId) {
-            const p = s.posts.find((p) => p.id === t.postId)!;
-            check(
-              p.status === "open" &&
-                new Date(p.expires) > new Date() &&
-                p.allocated + t.lines.reduce((n, l) => n + l.quantity, 0) <=
-                  p.quantity,
-              "انتهى الإعلان أو تغيرت كميته",
-            );
-            p.allocated += t.lines.reduce((n, l) => n + l.quantity, 0);
-          }
-          t.senderApproved = true;
-        } else {
-          check(!t.receiverApproved, "المستلم وافق سابقًا");
-          t.receiverApproved = true;
+      } else if (actor.branchId === t.from) {
+        check(!t.senderApproved, "موافقة الفرع المرسل مسجلة سابقًا");
+        for (const l of t.lines) {
+          check(eligible(item(l.itemId), s), "الصنف لم يعد مؤهلًا");
+          reserve(l.itemId, l.quantity, t.id, "transfer");
         }
+        if (t.postId) {
+          const p = s.posts.find((p) => p.id === t.postId)!;
+          check(
+            p.status === "open" &&
+              new Date(p.expires) > new Date() &&
+              p.allocated + t.lines.reduce((n, l) => n + l.quantity, 0) <=
+                p.quantity,
+            "انتهى الإعلان أو تغيرت كميته",
+          );
+          p.allocated += t.lines.reduce((n, l) => n + l.quantity, 0);
+        }
+        t.senderApproved = true;
+      } else if (actor.branchId === t.to) {
+        check(!t.receiverApproved, "موافقة الفرع المستلم مسجلة سابقًا");
+        t.receiverApproved = true;
+      } else {
+        throw new Error("الموافقة مقتصرة على طرفي المناقلة (الفرع المرسل أو المستلم)");
       }
       t.status =
         t.senderApproved && t.receiverApproved
-          ? t.policy === "centralized" && !t.managementApproved
-            ? "management"
-            : "ready"
+          ? "ready"
           : "pending";
       log("موافقة مناقلة", t.id, t.status, t.from);
       break;
@@ -968,7 +969,7 @@ export function transact(
       const t = transfer(command.id);
       actorBranch(t.from);
       check(
-        t.lines.every((l) => eligible(item(l.itemId))),
+        t.lines.every((l) => eligible(item(l.itemId), s)),
         "راجع أهلية البنود قبل الإرسال",
       );
       check(t.status === "ready", "المناقلة غير جاهزة للإرسال");
@@ -1000,7 +1001,8 @@ export function transact(
         );
       release(t.id);
       t.status = command.type === "cancelTransfer" ? "cancelled" : "rejected";
-      log("إغلاق طلب مناقلة", t.id, t.status, t.from);
+      t.rejectedBy = actor.branchId || (actor.role === "agency_master" ? "agency_master" : actor.id);
+      log("إغلاق طلب مناقلة", t.id, t.status, actor.branchId || t.from);
       break;
     }
     case "receiveTransfer": {
@@ -1114,7 +1116,7 @@ export function transact(
         i = item(x.itemId);
       own(i.branchId);
       check(actor.role !== "agency_branch", "التسعير والاعتماد للإدارة");
-      check(x.status === "pending" && eligible(i), "الطلب غير قابل للاعتماد");
+      check(x.status === "pending" && eligible(i, s), "الطلب غير قابل للاعتماد");
       check(
         (!i.unitsPerPackage ||
           i.splitAllowed ||
@@ -1164,7 +1166,7 @@ export function transact(
         buyer = s.branches.find((b) => b.id === command.branchId)!;
       check(
         x.status === "published" &&
-          eligible(i) &&
+          eligible(i, s) &&
           buyer.id !== seller.id &&
           (!buyer.chainId || buyer.chainId !== seller.chainId),
         "استخدم المناقلة الداخلية لفروع السلسلة، أو اختر عرضًا مؤهلًا",
@@ -1180,7 +1182,8 @@ export function transact(
           Math.round(
             ((x.price * command.quantity) / (x.unitFactor || 1)) * 100,
           ) / 100,
-        fee = Math.round(amount * 0.015);
+        feeRate = (s.platformFeePercent ?? 1.5) / 100,
+        fee = Math.round(amount * feeRate);
       const central = actor.role === "agency_branch";
       if (!central) {
         const w = wallet(buyer.id);
@@ -1213,7 +1216,7 @@ export function transact(
       );
       const x = sale(o.saleId);
       const i = item(o.itemId);
-      check(x.status === "published" && eligible(i), "العرض لم يعد متاحًا");
+      check(x.status === "published" && eligible(i, s), "العرض لم يعد متاحًا");
       const outstanding = committed(s, x);
       check(
         o.quantity <= x.quantity - x.fulfilled - outstanding,
@@ -1233,7 +1236,7 @@ export function transact(
       actorBranch(o.seller);
       check(o.status === "reserved", "الطلب غير جاهز للإرسال");
       check(
-        eligible(item(o.itemId)),
+        eligible(item(o.itemId), s),
         "الصنف غير مؤهل للإرسال؛ يمكن إلغاء الطلب وفك الحجز قبل الإرسال",
       );
       consume(o.id);
@@ -1259,6 +1262,17 @@ export function transact(
       w.held -= o.amount + o.fee;
       wallet(o.seller).available += o.amount;
       s.feeBalance = (s.feeBalance || 0) + o.fee;
+      if (!s.feeLedger) s.feeLedger = [];
+      s.feeLedger.push({
+        id: uid("fee"),
+        orderId: o.id,
+        amount: o.amount,
+        fee: o.fee,
+        feePercent: s.platformFeePercent ?? 1.5,
+        sellerBranchId: o.seller,
+        buyerBranchId: o.buyer,
+        at: now(),
+      });
       sale(o.saleId).fulfilled += o.quantity;
       o.accepted = o.quantity;
       o.status = "completed";
@@ -1696,6 +1710,36 @@ export function transact(
         command.fingerprint,
         `إضافة ${added}؛ تحديث ${updated}؛ معلق ${suspended}`,
         command.branchId,
+      );
+      break;
+    }
+    case "setPlatformSettings": {
+      check(
+        actor.role === "admin",
+        "تعديل إعدادات وسياسات المنصة مقتصر على مدير المنصة",
+      );
+      if (command.feePercent !== undefined) {
+        check(
+          Number.isFinite(command.feePercent) &&
+            command.feePercent >= 0 &&
+            command.feePercent <= 20,
+          "نسبة العمولة يجب أن تكون بين 0٪ و 20٪",
+        );
+        s.platformFeePercent = command.feePercent;
+      }
+      if (command.minExpiryDays !== undefined) {
+        check(
+          Number.isFinite(command.minExpiryDays) &&
+            command.minExpiryDays >= 0 &&
+            command.minExpiryDays <= 365,
+          "أيام الصلاحية يجب أن تكون بين 0 و 365 يوماً",
+        );
+        s.minExpiryDays = command.minExpiryDays;
+      }
+      log(
+        "تعديل سياسات المنصة",
+        actor.id,
+        `العمولة: ${s.platformFeePercent ?? 1.5}٪، أدنى صلاحية: ${s.minExpiryDays ?? 30} يوم`,
       );
       break;
     }

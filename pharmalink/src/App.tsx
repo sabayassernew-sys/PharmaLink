@@ -34,7 +34,7 @@ import { Transfers } from "./pages/Transfers";
 import { Trading } from "./pages/Trading";
 import { Management } from "./pages/Management";
 import { Home } from "./pages/Home";
-import { Badge, Modal } from "./components/UI";
+import { Modal } from "./components/UI";
 const navigation = [
   {
     label: "مساحة العمل",
@@ -280,7 +280,6 @@ export default function App() {
             </span>
           </div>
           <div className="topbar-actions">
-            <Badge tone="success">محلي • محفوظ في المتصفح</Badge>
             <button
               className="notification-btn"
               title="الإشعارات"

@@ -12,19 +12,24 @@ import { Percent } from "lucide-react";
 import type { Item } from "../domain/types";
 import { useApp } from "../context";
 import { available, eligible, eligibilityReasons } from "../domain/access";
-import { Button, Field, Form, Badge, money } from "./UI";
+import { Button, Field, Form, Badge, ConfirmModal, money } from "./UI";
 export function SaleEditor({
   item: i,
   saleId,
+  initialEdit = false,
+  onDone,
 }: {
   item: Item;
   saleId?: string;
+  initialEdit?: boolean;
+  onDone?: () => void;
 }) {
   const { state, actor, run, busy } = useApp();
   const existing = saleId
     ? state.sales.find((x) => x.id === saleId && x.itemId === i.id)
     : editableOffer(state, i.id);
-  const [edit, setEdit] = useState(false);
+  const [edit, setEdit] = useState(initialEdit);
+  const [confirmWithdraw, setConfirmWithdraw] = useState(false);
   const [preview, setPreview] = useState<Extract<
     Command,
     { type: "saveSale" }
@@ -138,19 +143,28 @@ export function SaleEditor({
               (actor.role === "agency_branch" &&
                 existing.status === "published")
             }
-            onClick={() => {
-              if (
-                confirm(
-                  "إيقاف استقبال طلبات جديدة؟ تبقى الطلبات القائمة محفوظة.",
-                )
-              )
-                run({ type: "withdrawSale", id: existing.id });
-            }}
+            onClick={() => setConfirmWithdraw(true)}
           >
             {existing.status === "published"
               ? "إيقاف العرض"
               : "إلغاء طلب الاعتماد"}
           </Button>
+        )}
+        {confirmWithdraw && (
+          <ConfirmModal
+            title="تأكيد إيقاف العرض"
+            message="هل أنت متأكد من إيقاف استقبال طلبات جديدة لهذا العرض؟"
+            description="تبقى الطلبات القائمة والمحجوزة مسبقاً محفوظة وتستمر معالجتها بشكل طبيعي، ويمكنك إعادة النشر لاحقاً."
+            confirmText="إيقاف العرض"
+            cancelText="تراجع"
+            busy={busy}
+            onClose={() => setConfirmWithdraw(false)}
+            onConfirm={async () => {
+              await run({ type: "withdrawSale", id: existing.id });
+              setConfirmWithdraw(false);
+              onDone?.();
+            }}
+          />
         )}
         <details>
           <summary>سجل تغييرات العرض</summary>
@@ -199,6 +213,7 @@ export function SaleEditor({
             if (await run(preview)) {
               setPreview(null);
               setEdit(false);
+              onDone?.();
             }
           }}
         >
@@ -207,7 +222,7 @@ export function SaleEditor({
             : existing?.status === "withdrawn"
               ? "تأكيد إعادة النشر"
               : existing
-                ? "تأكيد تعديل العرض"
+                ? "تأكيد حفظ التعديل"
                 : "تأكيد النشر"}
         </Button>
         <Button variant="secondary" onClick={() => setPreview(null)}>
@@ -236,13 +251,23 @@ export function SaleEditor({
         });
       }}
     >
-      <h3>{independent ? "عرض للبيع مباشرة" : "إعداد عرض للبيع الخارجي"}</h3>
+      <h3>
+        {existing
+          ? existing.status === "withdrawn"
+            ? "مراجعة وإعادة النشر"
+            : "تعديل بيانات العرض"
+          : independent
+            ? "عرض للبيع مباشرة"
+            : "إعداد عرض للبيع الخارجي"}
+      </h3>
       <p>
-        {independent
-          ? "أنت صاحب القرار؛ حدد الكمية والسعر ثم انشر."
-          : actor.role === "agency_master"
-            ? "راجعي كمية الفرع وسعر وحدة البيع، ثم اعتمدي النشر للطلبات الجديدة."
-            : "الفرع يرسل الكمية للإدارة؛ التسعير والنشر للإدارة."}
+        {existing
+          ? "عدّل الكمية أو السعر ونسبة الخصم، ثم اضغط معاينة التعديل للتأكيد والحفظ."
+          : independent
+            ? "أنت صاحب القرار؛ حدد الكمية والسعر ثم انشر."
+            : actor.role === "agency_master"
+              ? "راجعي كمية الفرع وسعر وحدة البيع، ثم اعتمدي النشر للطلبات الجديدة."
+              : "الفرع يرسل الكمية للإدارة؛ التسعير والنشر للإدارة."}
       </p>
       <label className="field">
         <span>وحدة البيع التي سيشتري بها العميل</span>
@@ -404,25 +429,36 @@ export function SaleEditor({
         required={false}
         defaultValue={existing?.note || ""}
       />
-      {!eligible(i) && (
-        <div className="notice">{eligibilityReasons(i).join(" · ")}</div>
+      {!eligible(i, state.minExpiryDays ?? 30) && (
+        <div className="notice">{eligibilityReasons(i, state.minExpiryDays ?? 30).join(" · ")}</div>
       )}
-      <Button
-        disabled={busy || !eligible(i) || available(state, i.id) < factor}
-        type="submit"
-      >
-        معاينة{" "}
-        {existing?.status === "withdrawn"
-          ? "إعادة النشر"
-          : existing
-            ? "التعديل"
-            : "العرض"}
-      </Button>
-      {edit && (
-        <Button variant="ghost" onClick={() => setEdit(false)}>
-          رجوع
+      <div className="flex gap-2.5 pt-2">
+        <Button
+          disabled={busy || !eligible(i, state.minExpiryDays ?? 30) || available(state, i.id) < factor}
+          type="submit"
+        >
+          معاينة{" "}
+          {existing?.status === "withdrawn"
+            ? "إعادة النشر"
+            : existing
+              ? "التعديل"
+              : "العرض"}
         </Button>
-      )}
+        {edit && (
+          <Button
+            variant="ghost"
+            onClick={() => {
+              if (initialEdit && onDone) {
+                onDone();
+              } else {
+                setEdit(false);
+              }
+            }}
+          >
+            إلغاء التعديل
+          </Button>
+        )}
+      </div>
     </Form>
   );
 }
@@ -737,13 +773,29 @@ export function Checkout({
         <dd>{money(x.price)}</dd>
         <dt>القيمة</dt>
         <dd>{money(max === 1 ? x.price : subtotal)}</dd>
-        <dt>عمولة تجريبية 1.5٪</dt>
-        <dd>{money(Math.round((max === 1 ? x.price : subtotal) * 0.015))}</dd>
+        <dt>عمولة المنصة ({state.platformFeePercent !== undefined ? state.platformFeePercent : 1.5}٪)</dt>
+        <dd>
+          {money(
+            Math.round(
+              (max === 1 ? x.price : subtotal) *
+                ((state.platformFeePercent !== undefined
+                  ? state.platformFeePercent
+                  : 1.5) /
+                  100),
+            ),
+          )}
+        </dd>
         <dt>الإجمالي</dt>
         <dd>
           {money(
             (max === 1 ? x.price : subtotal) +
-              Math.round((max === 1 ? x.price : subtotal) * 0.015),
+              Math.round(
+                (max === 1 ? x.price : subtotal) *
+                  ((state.platformFeePercent !== undefined
+                    ? state.platformFeePercent
+                    : 1.5) /
+                    100),
+              ),
           )}
         </dd>
       </dl>

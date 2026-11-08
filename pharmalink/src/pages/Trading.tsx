@@ -14,6 +14,7 @@ import {
   Field,
   Form,
   Modal,
+  ConfirmModal,
   PageTitle,
   Status,
   money,
@@ -24,11 +25,12 @@ export function Trading({ mode }: { mode: "market" | "sales" | "orders" }) {
   const [selected, setSelected] = useState<string | null>(null);
   const [side, setSide] = useState("buy");
   const [dispute, setDispute] = useState<string | null>(null);
+  const [confirmReceive, setConfirmReceive] = useState<string | null>(null);
   const market = state.sales.filter(
     (x) =>
       x.status === "published" &&
       offerAvailability(state, x) !== "completed" &&
-      eligible(state.items.find((i) => i.id === x.itemId)!) &&
+      eligible(state.items.find((i) => i.id === x.itemId)!, state) &&
       state.items
         .find((i) => i.id === x.itemId)!
         .name.toLowerCase()
@@ -62,13 +64,7 @@ export function Trading({ mode }: { mode: "market" | "sales" | "orders" }) {
               : "تابع الموافقة والحجز والإرسال والاستلام المطابق."
         }
       />
-      <div className="notice mb-5">
-        <Wallet size={18} />
-        <span>
-          محاكاة مالية محلية فقط. لا توجد أموال حقيقية أو بوابة دفع أو خدمة ضمان
-          مالي مفعلة.
-        </span>
-      </div>
+
       {mode === "market" && (
         <>
           <div className="toolbar mb-5">
@@ -292,14 +288,7 @@ export function Trading({ mode }: { mode: "market" | "sales" | "orders" }) {
                             o.status === "sent" && (
                               <Button
                                 disabled={busy}
-                                onClick={() => {
-                                  if (
-                                    confirm(
-                                      "هل فُحصت البضاعة واستُلمت الكمية كاملة ومطابقة؟ لا تؤكد عند وجود اختلاف.",
-                                    )
-                                  )
-                                    run({ type: "receiveOrder", id: o.id });
-                                }}
+                                onClick={() => setConfirmReceive(o.id)}
                               >
                                 استلام مطابق
                               </Button>
@@ -343,6 +332,22 @@ export function Trading({ mode }: { mode: "market" | "sales" | "orders" }) {
         orders
           .filter((o) => o.rejected || o.missing)
           .map((o) => <ExternalProcessing id={o.id} key={o.id} />)}
+      {confirmReceive && (
+        <ConfirmModal
+          title="تأكيد الاستلام المطابق"
+          message="هل فُحصت البضاعة وتأكدت من استلام الكمية كاملة ومطابقة للمواصفات؟"
+          description="تنبيه: لا تؤكد الاستلام في حال وجود أي نقص أو اختلاف، بل استخدم خيار «تسجيل اختلاف» لضمان حقوقك وحجز الرصيد للتسوية."
+          confirmText="نعم، استلام مطابق"
+          cancelText="تراجع"
+          confirmVariant="primary"
+          busy={busy}
+          onClose={() => setConfirmReceive(null)}
+          onConfirm={async () => {
+            await run({ type: "receiveOrder", id: confirmReceive });
+            setConfirmReceive(null);
+          }}
+        />
+      )}
       {sale && (
         <Modal title="مراجعة طلب الشراء" onClose={() => setSelected(null)}>
           <Checkout saleId={sale.id} onDone={() => setSelected(null)} />

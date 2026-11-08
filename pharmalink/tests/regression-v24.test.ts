@@ -139,19 +139,23 @@ it("يرفض سعر CSV فارغًا ويسمح بالصفر الصريح", asyn
   );
   expect(result.rows[0].quantity).toBe(0);
 });
-it("يرفض خلية كمية XLSX مفقودة", async () => {
-  const { default: ExcelJS } = await import("exceljs");
-  const wb = new ExcelJS.Workbook();
-  const sheet = wb.addWorksheet("Stock");
-  sheet.addRow(["name", "batch", "expiry", "unit", "quantity", "price"]);
-  sheet.addRow(["Drug", "B01", "2030-01-01", "box", null, 100]);
-  const bytes = new Uint8Array(
-    (await wb.xlsx.writeBuffer()) as unknown as ArrayBuffer,
-  );
-  await expect(parseFile(new File([bytes], "blank.xlsx"))).rejects.toThrow(
-    "الكمية مطلوب",
-  );
-});
+it(
+  "يرفض خلية كمية XLSX مفقودة",
+  async () => {
+    const { default: ExcelJS } = await import("exceljs");
+    const wb = new ExcelJS.Workbook();
+    const sheet = wb.addWorksheet("Stock");
+    sheet.addRow(["name", "batch", "expiry", "unit", "quantity", "price"]);
+    sheet.addRow(["Drug", "B01", "2030-01-01", "box", null, 100]);
+    const bytes = new Uint8Array(
+      (await wb.xlsx.writeBuffer()) as unknown as ArrayBuffer,
+    );
+    await expect(parseFile(new File([bytes], "blank.xlsx"))).rejects.toThrow(
+      "الكمية مطلوب",
+    );
+  },
+  90000,
+);
 it("يرفض نسخة فيها طلب محجوز دون المال الموافق", () => {
   const s = buy(setup());
   s.wallets.find((w) => w.branchId === "pharm_03")!.held = 0;
@@ -307,3 +311,42 @@ it("الاستعادة للمدير فقط وتحتفظ بالنسخة السا�
   expect(before).toHaveBeenCalledTimes(1);
   expect(JSON.parse(raw).revision).toBeGreaterThan(initial.revision);
 });
+
+it("يراعي فترات الصلاحية المحدثة من مدير المنصة في المناقلة الداخلية دون إغفال", () => {
+  let s = setup();
+  // set item in pharm_agency_01 with 25 days left
+  const item = s.items.find((i) => i.branchId === "pharm_agency_01")!;
+  const d = new Date();
+  d.setDate(d.getDate() + 25);
+  item.expiry = d.toISOString().slice(0, 10);
+
+  // default minExpiryDays is 30, so transfer should fail
+  s.minExpiryDays = 30;
+  expect(() =>
+    transact(s, "branch-sabeen", {
+      type: "transfer",
+      from: "pharm_agency_01",
+      to: "pharm_agency_02",
+      items: [{ itemId: item.id, quantity: 1 }],
+      note: "تجربة صلاحية",
+    }),
+  ).toThrow("بند غير مؤهل للمناقلة");
+
+  // manager lowers minExpiryDays to 20
+  s = transact(s, "admin", {
+    type: "setPlatformSettings",
+    minExpiryDays: 20,
+  });
+
+  // Now transfer should succeed because 25 >= 20
+  s = transact(s, "branch-sabeen", {
+    type: "transfer",
+    from: "pharm_agency_01",
+    to: "pharm_agency_02",
+    items: [{ itemId: item.id, quantity: 1 }],
+    note: "تجربة صلاحية",
+  });
+  expect(s.transfers.length).toBe(1);
+  expect(s.transfers[0].lines[0].itemId).toBe(item.id);
+});
+

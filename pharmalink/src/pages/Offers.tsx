@@ -9,12 +9,23 @@ import {
   offerAvailability,
   offerEvents,
 } from "../domain/offers";
-import { Card, Button, Modal, Empty, Status, money } from "../components/UI";
+import {
+  Card,
+  Button,
+  Modal,
+  ConfirmModal,
+  Empty,
+  Status,
+  money,
+} from "../components/UI";
 export function Offers() {
   const { state, actor, run, busy } = useApp();
   const [tab, setTab] = useState("published");
   const [edit, setEdit] = useState<string | null>(null);
   const [history, setHistory] = useState<string | null>(null);
+  const [withdrawingSale, setWithdrawingSale] = useState<
+    (typeof state.sales)[number] | null
+  >(null);
   const owned = state.sales.filter((x) =>
     ownsBranch(
       state,
@@ -177,14 +188,7 @@ export function Offers() {
                               <Button
                                 disabled={!can || busy}
                                 variant="ghost"
-                                onClick={() => {
-                                  if (
-                                    confirm(
-                                      "إيقاف استقبال طلبات جديدة؟ الطلبات القائمة تبقى محفوظة.",
-                                    )
-                                  )
-                                    run({ type: "withdrawSale", id: x.id });
-                                }}
+                                onClick={() => setWithdrawingSale(x)}
                               >
                                 {x.status === "pending"
                                   ? "إلغاء الطلب"
@@ -218,39 +222,53 @@ export function Offers() {
         <Modal
           title={
             x.status === "withdrawn"
-              ? "مراجعة إعادة النشر"
+              ? "مراجعة وإعادة النشر"
               : "تعديل العرض للطلبات الجديدة"
           }
           onClose={() => {
             setEdit(null);
           }}
         >
-          <SaleEditor key={x.id} item={i} saleId={x.id} />
-          <div className="notice mt-4">
-            <span>
-              أُغلقت معالجة{" "}
-              {offerProgress(state, x).closed / (x.unitFactor || 1)}{" "}
-              {x.saleUnit || i.unit} من كمية العرض. هذا الرقم لا يعني أن جميعها
-              بيعت.
-            </span>
-            <span>
-              المباع المقبول:{" "}
-              {offerProgress(state, x).accepted / (x.unitFactor || 1)} ·
-              المرتجع: {offerProgress(state, x).returned / (x.unitFactor || 1)}{" "}
-              · التالف:{" "}
-              {offerProgress(state, x).writtenOff / (x.unitFactor || 1)} ·
-              المفقود: {offerProgress(state, x).lost / (x.unitFactor || 1)}
-            </span>
-            {!!offerProgress(state, x).unresolvedHistory && (
-              <span>
-                كمية تاريخية مغلقة دون تفصيل كافٍ:{" "}
-                {offerProgress(state, x).unresolvedHistory /
-                  (x.unitFactor || 1)}
-                . لم يُفترض أنها مبيعات.
-              </span>
-            )}
-          </div>
+          <SaleEditor
+            key={x.id}
+            item={i}
+            saleId={x.id}
+            initialEdit={true}
+            onDone={() => setEdit(null)}
+          />
         </Modal>
+      )}
+      {withdrawingSale && (
+        <ConfirmModal
+          title={
+            withdrawingSale.status === "pending"
+              ? "تأكيد إلغاء طلب الاعتماد"
+              : "تأكيد إيقاف العرض"
+          }
+          message={
+            withdrawingSale.status === "pending"
+              ? "هل أنت متأكد من إلغاء طلب اعتماد هذا العرض؟"
+              : "هل أنت متأكد من إيقاف استقبال طلبات جديدة لهذا العرض؟"
+          }
+          description={
+            withdrawingSale.status === "pending"
+              ? "سيتم إلغاء الطلب ولن يُرسل للإدارة، ويمكنك إعادة تقديمه في أي وقت."
+              : "• سيتوقف ظهور هذا العرض في البورصة الدوائية للطلبات الجديدة فوراً.\n• الطلبات القائمة والمحجوزة مسبقاً تبقى محفوظة وتستمر معالجتها كالمعتاد.\n• يمكنك إعادة تفعيل العرض ونشره لاحقاً في أي وقت من قسم «الموقوفة»."
+          }
+          confirmText={
+            withdrawingSale.status === "pending"
+              ? "إلغاء الطلب"
+              : "إيقاف العرض"
+          }
+          cancelText="تراجع"
+          confirmVariant="danger"
+          busy={busy}
+          onClose={() => setWithdrawingSale(null)}
+          onConfirm={async () => {
+            await run({ type: "withdrawSale", id: withdrawingSale.id });
+            setWithdrawingSale(null);
+          }}
+        />
       )}
       {history && (
         <Modal title="سجل تغييرات العرض" onClose={() => setHistory(null)}>

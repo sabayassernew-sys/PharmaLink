@@ -3,7 +3,7 @@ import { useApp } from "../context";
 import { parseBackup } from "../domain/backups";
 import { saveBlob, STORAGE_KEY, repository } from "../data/repository";
 import { createSeed } from "../data/seed";
-import { Card, Button } from "./UI";
+import { Card, Button, ConfirmModal } from "./UI";
 
 export function BackupTools() {
   const { state, actor, reload, notify } = useApp();
@@ -12,6 +12,7 @@ export function BackupTools() {
   const [error, setError] = useState("");
   const [expectedRaw, setExpectedRaw] = useState<string | null>(null);
   const [replacing, setReplacing] = useState(false);
+  const [confirmReplace, setConfirmReplace] = useState(false);
   const [restore, setRestore] = useState<ReturnType<typeof parseBackup> | null>(
     null,
   );
@@ -102,31 +103,43 @@ export function BackupTools() {
               </p>
               <Button
                 variant="danger"
-                onClick={async () => {
-                  setReplacing(true);
-                  try {
-                    assertAdmin();
-                    if (!confirm("تأكيد استبدال بيانات التجربة بالكامل؟"))
-                      return;
-                    await repository.replace(
-                      actor.id,
-                      restore,
-                      expectedRaw,
-                      (raw) => download(snapshot(raw), "before-restore.json"),
-                    );
-                    setRestore(null);
-                    reload();
-                    notify("تمت استعادة النسخة المحلية");
-                  } catch (e) {
-                    setError((e as Error).message);
-                  } finally {
-                    setReplacing(false);
-                  }
-                }}
+                onClick={() => setConfirmReplace(true)}
                 disabled={replacing}
               >
                 تأكيد استعادة النسخة
               </Button>
+              {confirmReplace && (
+                <ConfirmModal
+                  title="تأكيد استبدال بيانات التجربة"
+                  message="هل أنت متأكد من استبدال جميع بيانات التطبيق بالنسخة المحددة؟"
+                  description="سيتم تنزيل نسخة احتياطية من البيانات الحالية تلقائياً في متصفحك قبل البدء بالاستبدال لحفظ بياناتك."
+                  confirmText="تأكيد الاستبدال"
+                  cancelText="تراجع"
+                  confirmVariant="danger"
+                  busy={replacing}
+                  onClose={() => setConfirmReplace(false)}
+                  onConfirm={async () => {
+                    setReplacing(true);
+                    try {
+                      assertAdmin();
+                      await repository.replace(
+                        actor.id,
+                        restore,
+                        expectedRaw,
+                        (raw) => download(snapshot(raw), "before-restore.json"),
+                      );
+                      setRestore(null);
+                      setConfirmReplace(false);
+                      reload();
+                      notify("تمت استعادة النسخة المحلية بنجاح");
+                    } catch (e) {
+                      setError((e as Error).message);
+                    } finally {
+                      setReplacing(false);
+                    }
+                  }}
+                />
+              )}
             </>
           )}
           {error && (
