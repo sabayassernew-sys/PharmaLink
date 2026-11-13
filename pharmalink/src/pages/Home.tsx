@@ -62,16 +62,18 @@ export function Home({ navigate }: { navigate: (s: string) => void }) {
         </p>
         <div className="flex gap-3 justify-center">
           <Button
-            disabled={suspended}
+            disabled={suspended || actor.role === "pending"}
             onClick={() =>
               actor.role === "guest" ? setRegister(true) : navigate("dashboard")
             }
           >
             {actor.role === "guest"
               ? "طلب تسجيل منشأة"
-              : suspended
-                ? "الحساب موقوف حالياً"
-                : "الدخول لمساحة العمل"}
+              : actor.role === "pending"
+                ? "الطلب قيد مراجعة وتدقيق الإدارة"
+                : suspended
+                  ? "الحساب موقوف حالياً"
+                  : "الدخول لمساحة العمل"}
             <ArrowUpLeft size={18} />
           </Button>
           <Button variant="secondary" onClick={() => navigate("brand")}>
@@ -107,10 +109,16 @@ export function Home({ navigate }: { navigate: (s: string) => void }) {
       )}
 
       {actor.role === "pending" && !actor.rejection && (
-        <div className="notice mt-5">
-          <ShieldCheck size={20} className="text-teal-600" />
-          <div>
-            <strong>طلب المنشأة قيد مراجعة وتدقيق مدير المنصة:</strong> يجري فحص الوثائق والتراخيص المرفقة. لا يُتاح المخزون أو التداول قبل التوثيق.
+        <div className="notice mt-5 bg-teal-50/70 border border-teal-200 p-4 rounded-2xl flex items-start gap-3">
+          <ShieldCheck size={22} className="text-teal-700 shrink-0 mt-0.5" />
+          <div className="text-right">
+            <strong className="text-teal-900 block mb-0.5">
+              طلب تسجيل المنشأة قيد المراجعة والتدقيق الإداري:
+            </strong>
+            <p className="text-xs text-teal-800 m-0 leading-relaxed">
+              يجري حالياً فحص التراخيص والبيانات المرفقة من قبل إدارة المنصة قبل منح صلاحيات الدخول.
+              فور اعتماد المنشأة وتوثيقها من الإدارة، سيُطلب منك اختيار باقة الاشتراك المناسبة أو تفعيل التجربة المجانية لتنشيط مساحة العمل ومباشرة التبادل الدوائي.
+            </p>
           </div>
         </div>
       )}

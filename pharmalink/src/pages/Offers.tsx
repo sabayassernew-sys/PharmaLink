@@ -53,7 +53,9 @@ export function Offers() {
           ["published", "العروض الحالية"],
           ["withdrawn", "الموقوفة"],
           ["completed", "المغلقة بعد التنفيذ"],
-          ["pending", "بانتظار الاعتماد"],
+          ...(actor.role !== "independent"
+            ? [["pending", "بانتظار الاعتماد"]]
+            : []),
           ["history", "سجل التغييرات"],
         ].map(([key, title]) => (
           <button

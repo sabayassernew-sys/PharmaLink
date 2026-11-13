@@ -1,22 +1,16 @@
 import { ExternalProcessing } from "../components/ExternalProcessing";
 import { BackupTools } from "../components/BackupTools";
 import { Radar } from "./Radar";
+import { SubscriptionsView } from "../components/SubscriptionsView";
 import { useState, useEffect } from "react";
 import {
   Plus,
   ShieldCheck,
   Building2,
-  FileText,
   CheckCircle2,
   Ban,
   RotateCcw,
-  Eye,
-  Calendar,
   Clock,
-  ZoomIn,
-  ZoomOut,
-  Download,
-  ExternalLink,
   Camera,
   Sparkles,
   Trash2,
@@ -35,12 +29,9 @@ import {
   visibleItems,
   visibleTransfers,
   available,
-  daysLeft,
-  isLicenseExpired,
   roleNames,
 } from "../domain/access";
-import { licenseAlerts } from "../domain/notifications";
-import type { Account, KYCDocument } from "../domain/types";
+import type { Account } from "../domain/types";
 
 import {
   Badge,
@@ -60,16 +51,22 @@ export function PlatformSettingsControl() {
     state.platformFeePercent !== undefined ? state.platformFeePercent : 1.5;
   const currentMinDays =
     state.minExpiryDays !== undefined ? state.minExpiryDays : 30;
+  const currentNearDays =
+    state.nearExpiryAlertDays !== undefined ? state.nearExpiryAlertDays : 90;
 
   const [fee, setFee] = useState<number | "">(currentFee);
   const [minDays, setMinDays] = useState<number | "">(currentMinDays);
+  const [nearAlertDays, setNearAlertDays] = useState<number | "">(currentNearDays);
 
   useEffect(() => {
     setFee(
       state.platformFeePercent !== undefined ? state.platformFeePercent : 1.5,
     );
     setMinDays(state.minExpiryDays !== undefined ? state.minExpiryDays : 30);
-  }, [state.platformFeePercent, state.minExpiryDays]);
+    setNearAlertDays(
+      state.nearExpiryAlertDays !== undefined ? state.nearExpiryAlertDays : 90,
+    );
+  }, [state.platformFeePercent, state.minExpiryDays, state.nearExpiryAlertDays]);
 
   if (actor.role !== "admin") return null;
 
@@ -82,7 +79,7 @@ export function PlatformSettingsControl() {
             السياسات العامة وإعدادات المنصة (خاص بالإدارة)
           </h3>
           <p className="text-xs text-slate-500 m-0">
-            تحكم مركزي مباشر في نسبة عمولة المنصة على التداولات، وضابط الحد الأدنى لصلاحية الأدوية المسموح بنشرها.
+            تحكم مركزي مباشر في نسبة عمولة المنصة، وضابط الحد الأدنى لصلاحية التداول، وفترة الإنذار المبكر للمخزون.
           </p>
         </div>
       </div>
@@ -91,23 +88,27 @@ export function PlatformSettingsControl() {
         onSubmit={async (f) => {
           const rawFee = f.get("fee");
           const rawDays = f.get("minDays");
+          const rawNearDays = f.get("nearDays");
           const feePercent =
             rawFee === "" || rawFee === null ? undefined : Number(rawFee);
           const minExpiryDays =
             rawDays === "" || rawDays === null ? undefined : Number(rawDays);
+          const nearExpiryAlertDays =
+            rawNearDays === "" || rawNearDays === null ? undefined : Number(rawNearDays);
 
           if (
             await run({
               type: "setPlatformSettings",
               feePercent,
               minExpiryDays,
+              nearExpiryAlertDays,
             })
           ) {
             notify("تم حفظ وتطبيق سياسات المنصة بنجاح");
           }
         }}
       >
-        <div className="grid md:grid-cols-2 gap-4 mb-4">
+        <div className="grid md:grid-cols-3 gap-4 mb-4">
           <div className="bg-white p-4 rounded-xl border border-slate-200">
             <div className="flex items-center justify-between mb-2">
               <span className="text-sm font-bold text-slate-800 flex items-center gap-1.5">
@@ -169,11 +170,43 @@ export function PlatformSettingsControl() {
               />
             </label>
           </div>
+
+          <div className="bg-white p-4 rounded-xl border border-slate-200">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-bold text-slate-800 flex items-center gap-1.5">
+                <Clock size={16} className="text-teal-600" />
+                نافذة الإنذار المبكر للصلاحية
+              </span>
+              <span className="bg-teal-50 text-teal-800 font-bold px-2 py-0.5 rounded text-xs border border-teal-200">
+                الحالي: {currentNearDays} يوم
+              </span>
+            </div>
+            <p className="text-xs text-slate-500 mb-3 leading-relaxed">
+              فترة الأيام التي يعتبر النظام خلالها الدواء مقارباً على الانتهاء لتنبيه الصيدليات في المخزون والداشبورد.
+            </p>
+            <label className="field m-0">
+              <span>أيام الإنذار المبكر (يوم)</span>
+              <input
+                name="nearDays"
+                type="number"
+                min={1}
+                max={365}
+                step={1}
+                required
+                value={nearAlertDays}
+                onChange={(e) =>
+                  setNearAlertDays(
+                    e.target.value === "" ? "" : Number(e.target.value),
+                  )
+                }
+              />
+            </label>
+          </div>
         </div>
 
         <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
           <p className="text-xs text-slate-500 m-0">
-            * تسري هذه السياسات فوراً على كافة عمليات النشر والشراء اللاحقة في النظام.
+            * تسري هذه السياسات فوراً على كافة عمليات النشر والشراء وتنبيهات المخزون في النظام.
           </p>
           <Button disabled={busy} type="submit">
             تحديث وحفظ سياسات المنصة
@@ -195,17 +228,14 @@ export function Management({
     | "settings"
     | "brand"
     | "radar"
-    | "disputes";
+    | "disputes"
+    | "subscriptions";
 }) {
   const { state, actor, run, busy } = useApp();
   const [add, setAdd] = useState(false);
-  const [verifyTab, setVerifyTab] = useState<"pending" | "active" | "alerts" | "suspended">("pending");
+  const [verifyTab, setVerifyTab] = useState<"pending" | "active" | "suspended">("pending");
   const [inspectAccount, setInspectAccount] = useState<Account | null>(null);
-  const [singleDoc, setSingleDoc] = useState<KYCDocument | null>(null);
-  const [galleryDoc, setGalleryDoc] = useState<KYCDocument | null>(null);
-  const [docZoom, setDocZoom] = useState<number>(1);
   const [suspendModal, setSuspendModal] = useState<Account | null>(null);
-  const [renewModal, setRenewModal] = useState<Account | null>(null);
   const [rejectModal, setRejectModal] = useState<Account | null>(null);
   const [profileAvatar, setProfileAvatar] = useState<string | undefined>(actor.avatarUrl);
   const [presetModal, setPresetModal] = useState(false);
@@ -237,6 +267,7 @@ export function Management({
     brand: "الهوية البصرية",
     radar: "رادار الأدوية",
     disputes: "النزاعات الخارجية",
+    subscriptions: "الاشتراكات والباقات",
   };
   return (
     <>
@@ -248,15 +279,19 @@ export function Management({
             : titles[mode]
         }
         description={
-          mode === "reports" && actor.role === "admin"
-            ? "متابعة إيرادات وعمولات المنصة المحصلة من التداولات، وحجم الصفقات المنفذة، وسجل محاسبي تفصيلي."
-            : mode === "settings"
-              ? "إدارة وتحديث بيانات المنشأة الصيدلانية، الشعار المعتمد، وسياسات التشغيل والخصم."
-              : mode === "verification"
-                ? "مراجعة تسجيل المنشآت؛ الموافقة هنا تجريبية وليست تحققًا رسميًا من الترخيص."
-                : mode === "brand"
-                  ? "الكحلي للثقة، والفيروزي للتواصل وتدوير المخزون."
-                  : "معلومات وإجراءات وفق نطاق صلاحية الحساب."
+          mode === "subscriptions"
+            ? actor.role === "admin"
+              ? "إدارة باقات اشتراك الصيدليات، متابعة التجديدات والفواتير، والتحكم بأسعار وخصائص كل باقة."
+              : "إدارة ومتابعة خطة اشتراك منشأتك الصيدلانية، تاريخ الصلاحية، والتجديد المالي."
+            : mode === "reports" && actor.role === "admin"
+              ? "متابعة إيرادات وعمولات المنصة المحصلة من التداولات، وحجم الصفقات المنفذة، وسجل محاسبي تفصيلي."
+              : mode === "settings"
+                ? "إدارة وتحديث بيانات المنشأة الصيدلانية، الشعار المعتمد، وسياسات التشغيل والخصم."
+                : mode === "verification"
+                  ? "مراجعة تسجيل المنشآت؛ الموافقة هنا تجريبية وليست تحققًا رسميًا من الترخيص."
+                  : mode === "brand"
+                    ? "الكحلي للثقة، والفيروزي للتواصل وتدوير المخزون."
+                    : "معلومات وإجراءات وفق نطاق صلاحية الحساب."
         }
         actions={
           mode === "branches" ? (
@@ -266,6 +301,7 @@ export function Management({
           ) : undefined
         }
       />
+      {mode === "subscriptions" && <SubscriptionsView />}
       {mode === "branches" && (
         <>
           <Card className="mb-5">
@@ -336,33 +372,24 @@ export function Management({
           (a) => a.verified && ["agency_branch", "agency_master", "independent"].includes(a.role),
         );
         const suspendedAccounts = state.accounts.filter((a) => a.suspended);
-        const allLicAlerts = licenseAlerts(state, actor);
 
         return (
           <>
-            <div className="grid md:grid-cols-4 gap-4 mb-5">
+            <div className="grid md:grid-cols-3 gap-4 mb-5">
               <Card className="wallet-summary">
                 <ShieldCheck className="text-teal-600" />
                 <div>
-                  <p>طلبات بانتظار الفحص</p>
+                  <p>طلبات بانتظار الاعتماد</p>
                   <strong className="text-xl text-teal-700">{pendingAccounts.length}</strong>
-                  <small className="block text-slate-400">تحتاج تدقيق الوثائق</small>
+                  <small className="block text-slate-400">تحتاج موافقة الإدارة</small>
                 </div>
               </Card>
               <Card className="wallet-summary">
                 <CheckCircle2 className="text-emerald-600" />
                 <div>
-                  <p>منشآت معتمدة سارية</p>
+                  <p>منشآت معتمدة ونشطة</p>
                   <strong className="text-xl text-emerald-700">{verifiedAccounts.length}</strong>
-                  <small className="block text-slate-400">تراخيص موثقة</small>
-                </div>
-              </Card>
-              <Card className="wallet-summary">
-                <Clock className="text-amber-600" />
-                <div>
-                  <p>تنبيهات انتهاء التراخيص</p>
-                  <strong className="text-xl text-amber-700">{allLicAlerts.length}</strong>
-                  <small className="block text-slate-400">خلال 30 و15 يوماً</small>
+                  <small className="block text-slate-400">حسابات مؤهلة للتداول</small>
                 </div>
               </Card>
               <Card className="wallet-summary">
@@ -377,9 +404,8 @@ export function Management({
 
             <div className="tabs mb-5">
               {[
-                ["pending", `طلبات التوثيق الجديدة (${pendingAccounts.length})`],
-                ["active", `المنشآت المعتمدة وتتبع التراخيص (${verifiedAccounts.length})`],
-                ["alerts", `تنبيهات التراخيص (${allLicAlerts.length})`],
+                ["pending", `طلبات التسجيل الجديدة (${pendingAccounts.length})`],
+                ["active", `المنشآت المعتمدة (${verifiedAccounts.length})`],
                 ["suspended", `المنشآت المجمدة والمخالفات (${suspendedAccounts.length})`],
               ].map(([key, label]) => (
                 <button
@@ -395,52 +421,67 @@ export function Management({
             {verifyTab === "pending" && (
               <Card>
                 <div className="table-caption mb-3">
-                  <span>طلبات التسجيل الجديدة بانتظار فحص التراخيص والوثائق الرسمية</span>
+                  <span>طلبات التسجيل الجديدة بانتظار اعتماد وموافقة إدارة المنصة</span>
                 </div>
                 {!pendingAccounts.length ? (
-                  <Empty title="لا توجد طلبات توثيق معلقة حالياً" description="جميع طلبات المنشآت تمت مراجعتها والبت فيها." />
+                  <Empty title="لا توجد طلبات تسجيل معلقة حالياً" description="جميع طلبات المنشآت تمت مراجعتها والبت فيها." />
                 ) : (
                   <div className="table-wrap">
                     <table>
                       <thead>
                         <tr>
-                          <th>المنشأة والصيدلي المسؤول</th>
-                          <th>بيانات الاتصال</th>
-                          <th>ترخيص الصيدلية</th>
-                          <th>الوثائق المرفقة</th>
+                          <th>المنشأة والمسؤول</th>
+                          <th>نوع المنشأة</th>
+                          <th>بيانات التواصل</th>
+                          <th>الموقع الجغرافي</th>
+                          <th>التراخيص الصيدلانية</th>
                           <th>الحالة</th>
-                          <th>الإجراء</th>
+                          <th>الإجراء والاعتماد</th>
                         </tr>
                       </thead>
                       <tbody>
                         {pendingAccounts.map((a) => {
-                          const docCount = a.documents?.length || 0;
+                          const chain = a.chainId ? state.chains.find((c) => c.id === a.chainId) : null;
                           return (
                             <tr key={a.id}>
                               <td>
                                 <strong>{a.name}</strong>
                                 <small className="block text-slate-500">
-                                  {a.pharmacistName ? `الصيدلي: ${a.pharmacistName}` : "لم يُحدد اسم الصيدلي"}
+                                  {a.pharmacistName ? `الصيدلي: ${a.pharmacistName}` : "—"}
                                 </small>
                               </td>
                               <td>
-                                <span>{a.email || "—"}</span>
-                              </td>
-                              <td>
-                                <code>{a.license || "—"}</code>
-                                {a.licenseExpiry && (
-                                  <small className="block text-slate-500">ينتهي: {a.licenseExpiry}</small>
+                                {a.facilityType === "agency_master" || a.role === "agency_master" ? (
+                                  <Badge tone="blue">إدارة سلسلة مركزية</Badge>
+                                ) : chain || a.facilityType === "agency_branch" ? (
+                                  <Badge tone="blue">فرع لسلسلة ({chain?.name || "سلسلة"})</Badge>
+                                ) : (
+                                  <Badge tone="neutral">صيدلية مستقلة</Badge>
                                 )}
                               </td>
                               <td>
-                                <Badge tone={docCount > 0 ? "success" : "warning"}>
-                                  <FileText size={13} className="inline ml-1" />
-                                  {docCount} وثائق رسمية
-                                </Badge>
+                                <span className="font-mono text-xs font-bold text-slate-800 block">{a.phone || "—"}</span>
+                                <small className="font-mono text-xs text-slate-500 block">{a.email}</small>
+                              </td>
+                              <td>
+                                <strong className="text-xs block text-slate-800">{a.city || "صنعاء"}</strong>
+                                {a.address && <small className="block text-slate-500 text-xs">{a.address}</small>}
+                              </td>
+                              <td>
+                                <div>
+                                  <span className="text-[11px] text-slate-400 block">ترخيص المنشأة:</span>
+                                  <code className="text-teal-700 font-bold">{a.license || "—"}</code>
+                                </div>
+                                {a.practiceLicense && (
+                                  <div className="mt-1">
+                                    <span className="text-[11px] text-slate-400 block">مزاولة المهنة:</span>
+                                    <span className="font-mono text-xs text-slate-700">{a.practiceLicense}</span>
+                                  </div>
+                                )}
                               </td>
                               <td>
                                 <Badge tone={a.rejection ? "danger" : "warning"}>
-                                  {a.rejection ? "مرفوض سابقاً" : "قيد المراجعة"}
+                                  {a.rejection ? "مرفوض سابقاً" : "بانتظار الاعتماد"}
                                 </Badge>
                               </td>
                               <td>
@@ -449,7 +490,7 @@ export function Management({
                                     variant="secondary"
                                     onClick={() => setInspectAccount(a)}
                                   >
-                                    <Eye size={15} /> فحص الوثائق والبت
+                                    <ShieldCheck size={15} /> مراجعة والاعتماد
                                   </Button>
                                 </div>
                               </td>
@@ -466,7 +507,7 @@ export function Management({
             {verifyTab === "active" && (
               <Card>
                 <div className="table-caption mb-3">
-                  <span>متابعة التراخيص السارية للمنشآت المعتمدة ورصد تواريخ الانتهاء</span>
+                  <span>قائمة المنشآت الصيدلانية المعتمدة وصلاحياتها في المنصة</span>
                 </div>
                 <div className="table-wrap">
                   <table>
@@ -474,147 +515,56 @@ export function Management({
                       <tr>
                         <th>المنشأة</th>
                         <th>الصيدلي والترخيص</th>
-                        <th>السجل التجاري والضريبي</th>
-                        <th>تاريخ انتهاء الترخيص</th>
-                        <th>حالة السريان</th>
+                        <th>حالة الحساب</th>
                         <th>الإجراءات الرقابية</th>
                       </tr>
                     </thead>
                     <tbody>
                       {verifiedAccounts.map((a) => {
-                        const expired = isLicenseExpired(a);
-                        const days = a.licenseExpiry ? daysLeft(a.licenseExpiry) : null;
-                        const tone = a.suspended
-                          ? "danger"
-                          : expired
-                            ? "danger"
-                            : days !== null && days <= 15
-                              ? "danger"
-                              : days !== null && days <= 30
-                                ? "warning"
-                                : "success";
-
+                        const chain = a.chainId ? state.chains.find((c) => c.id === a.chainId) : null;
                         return (
                           <tr key={a.id}>
                             <td>
                               <strong>{a.name}</strong>
                               <small className="block text-slate-500">
-                                {a.role === "independent" ? "صيدلية مستقلة" : "فرع سلسلة"}
+                                {a.facilityType === "agency_master" || a.role === "agency_master"
+                                  ? "إدارة سلسلة مركزية"
+                                  : chain || a.facilityType === "agency_branch" || a.role === "agency_branch"
+                                  ? `فرع لسلسلة (${chain?.name || "سلسلة"})`
+                                  : "صيدلية مستقلة"}
                               </small>
                             </td>
-                            <td>
-                              <span>{a.pharmacistName || "—"}</span>
-                              <code className="block text-xs text-slate-500">{a.license || "—"}</code>
-                            </td>
-                            <td>
-                              <span className="text-xs block">سجل: {a.commercialRegister || "—"}</span>
-                              <span className="text-xs text-slate-400 block">ضريبي: {a.taxNumber || "—"}</span>
-                            </td>
-                            <td>
-                              <span className="date">{a.licenseExpiry || "غير مسجل"}</span>
-                              {days !== null && (
-                                <small
-                                  className={
-                                    days < 0
-                                      ? "text-red-600 font-bold block"
-                                      : days <= 15
-                                        ? "text-red-600 block"
-                                        : days <= 30
-                                          ? "text-amber-600 block"
-                                          : "text-slate-500 block"
-                                  }
-                                >
-                                  {days < 0 ? "منتهي الصلاحية" : `متبقي ${days} يوماً`}
-                                </small>
-                              )}
-                            </td>
-                            <td>
-                              <Badge tone={tone}>
-                                {a.suspended
-                                  ? "مجمد لمخالفة"
-                                  : expired
-                                    ? "موقف آلياً (منتهي)"
-                                    : days !== null && days <= 15
-                                      ? "حرج (أقل من 15 يوماً)"
-                                      : days !== null && days <= 30
-                                        ? "يقترب الانتهاء (30 يوماً)"
-                                        : "ساري ومعتمد"}
-                              </Badge>
-                            </td>
-                            <td>
-                              <div className="flex gap-2 flex-wrap">
-                                <Button
-                                  variant="ghost"
-                                  onClick={() => setInspectAccount(a)}
-                                >
-                                  <FileText size={15} /> الوثائق
-                                </Button>
-                                <Button
-                                  variant="secondary"
-                                  onClick={() => setRenewModal(a)}
-                                >
-                                  <Calendar size={15} /> تمديد
-                                </Button>
-                                <Button
-                                  variant="danger"
-                                  onClick={() => setSuspendModal(a)}
-                                >
-                                  <Ban size={15} /> تجميد
-                                </Button>
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
+                          <td>
+                            <span>{a.pharmacistName || "—"}</span>
+                            <code className="block text-xs text-slate-500">{a.license || "—"}</code>
+                          </td>
+                          <td>
+                            <Badge tone={a.suspended ? "danger" : "success"}>
+                              {a.suspended ? "مجمد لمخالفة" : "معتمد ونشط"}
+                            </Badge>
+                          </td>
+                          <td>
+                            <div className="flex gap-2 flex-wrap">
+                              <Button
+                                variant="ghost"
+                                onClick={() => setInspectAccount(a)}
+                              >
+                                <Building2 size={15} /> بيانات المنشأة
+                              </Button>
+                              <Button
+                                variant="danger"
+                                onClick={() => setSuspendModal(a)}
+                              >
+                                <Ban size={15} /> تجميد
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
                     </tbody>
                   </table>
                 </div>
-              </Card>
-            )}
-
-            {verifyTab === "alerts" && (
-              <Card>
-                <div className="table-caption mb-3">
-                  <span>تنبيهات التراخيص التي أوشكت على الانتهاء (قبل 30 يوماً و15 يوماً) أو انتهت فعلياً</span>
-                </div>
-                {!allLicAlerts.length ? (
-                  <Empty title="لا توجد تنبيهات تراخيص مستحقة" description="جميع تراخيص المنشآت سارية لأكثر من 30 يوماً." />
-                ) : (
-                  <div className="grid gap-3">
-                    {allLicAlerts.map((alert, idx) => (
-                      <div
-                        key={idx}
-                        className={`border rounded-lg p-4 flex justify-between items-center ${
-                          alert.tone === "danger"
-                            ? "bg-red-50 border-red-200"
-                            : "bg-amber-50 border-amber-200"
-                        }`}
-                      >
-                        <div>
-                          <strong className={alert.tone === "danger" ? "text-red-800" : "text-amber-800"}>
-                            {alert.text}
-                          </strong>
-                          <p className="text-sm text-slate-600 mt-1">
-                            المنشأة: {alert.account.name} · الصيدلي المسؤول: {alert.account.pharmacistName || "—"} · الترخيص: {alert.account.license}
-                          </p>
-                          {alert.account.licenseExpiry && (
-                            <small className="text-slate-500">
-                              تاريخ الانتهاء المسجل: {alert.account.licenseExpiry}
-                            </small>
-                          )}
-                        </div>
-                        <div className="flex gap-2">
-                          <Button
-                            variant="secondary"
-                            onClick={() => setRenewModal(alert.account)}
-                          >
-                            تحديث التجديد
-                          </Button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
               </Card>
             )}
 
@@ -667,439 +617,112 @@ export function Management({
               </Card>
             )}
 
-            {/* Modal 1: Inspect Account & Documents (KYC Inspector) */}
+            {/* Modal: Review & Approve Account */}
             {inspectAccount && (
               <Modal
-                title={`فحص ملف وتراخيص: ${inspectAccount.name}`}
+                title={`مراجعة واعتماد: ${inspectAccount.name}`}
                 onClose={() => setInspectAccount(null)}
-                wide
               >
-                <div className="item-summary mb-4">
-                  <div>
-                    <h3>{inspectAccount.name}</h3>
-                    <p>
-                      البريد: {inspectAccount.email || "—"} · الحالة:{" "}
-                      {inspectAccount.verified ? "موثق" : "قيد المراجعة والاعتماد"}
-                    </p>
-                  </div>
-                  <div>
-                    <Badge tone={inspectAccount.verified ? "success" : "warning"}>
-                      {inspectAccount.verified ? "منشأة معتمدة" : "طلب معلق"}
-                    </Badge>
-                  </div>
-                </div>
+                {(() => {
+                  const chain = inspectAccount.chainId
+                    ? state.chains.find((c) => c.id === inspectAccount.chainId)
+                    : null;
+                  return (
+                    <div className="space-y-4 text-right">
+                      <div className="p-4 rounded-2xl bg-teal-50 border border-teal-200 flex items-center justify-between">
+                        <div>
+                          <h3 className="text-base font-bold text-slate-800 m-0">
+                            {inspectAccount.name}
+                          </h3>
+                          <p className="text-xs text-slate-600 m-0 mt-0.5">
+                            {inspectAccount.facilityType === "agency_master"
+                              ? "إدارة سلسلة مركزية (مقر رئيسي)"
+                              : chain
+                                ? `فرع تابع لسلسلة: ${chain.name}`
+                                : "صيدلية مستقلة"}
+                          </p>
+                        </div>
+                        <Badge tone={inspectAccount.verified ? "success" : "warning"}>
+                          {inspectAccount.verified ? "منشأة معتمدة" : "طلب بانتظار الاعتماد"}
+                        </Badge>
+                      </div>
 
-                <div className="grid md:grid-cols-2 gap-3 mb-5 border-b pb-4">
-                  <div>
-                    <label className="text-xs text-slate-500 font-bold block">اسم الصيدلي المسؤول</label>
-                    <span className="font-semibold">{inspectAccount.pharmacistName || "—"}</span>
-                  </div>
-                  <div>
-                    <label className="text-xs text-slate-500 font-bold block">رقم ترخيص مزاولة المهنة</label>
-                    <code>{inspectAccount.practiceLicense || "—"}</code>
-                  </div>
-                  <div>
-                    <label className="text-xs text-slate-500 font-bold block">رقم ترخيص فتح الصيدلية</label>
-                    <code>{inspectAccount.license || "—"}</code>
-                  </div>
-                  <div>
-                    <label className="text-xs text-slate-500 font-bold block">تاريخ انتهاء سريان الترخيص</label>
-                    <span className="font-semibold text-teal-700">{inspectAccount.licenseExpiry || "غير مسجل"}</span>
-                  </div>
-                  <div>
-                    <label className="text-xs text-slate-500 font-bold block">رقم السجل التجاري</label>
-                    <code>{inspectAccount.commercialRegister || "—"}</code>
-                  </div>
-                  <div>
-                    <label className="text-xs text-slate-500 font-bold block">الرقم الضريبي</label>
-                    <code>{inspectAccount.taxNumber || "—"}</code>
-                  </div>
-                </div>
+                      <div className="grid grid-cols-2 gap-3 p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs">
+                        <div>
+                          <span className="text-slate-500 font-bold block">نوع المنشأة:</span>
+                          <strong className="text-teal-800">
+                            {inspectAccount.facilityType === "agency_master"
+                              ? "إدارة سلسلة مركزية"
+                              : chain
+                                ? `فرع لسلسلة (${chain.name})`
+                                : "صيدلية مستقلة"}
+                          </strong>
+                        </div>
+                        <div>
+                          <span className="text-slate-500 font-bold block">الصيدلي المسؤول:</span>
+                          <strong className="text-slate-800">{inspectAccount.pharmacistName || "—"}</strong>
+                        </div>
+                        <div>
+                          <span className="text-slate-500 font-bold block">رقم الهاتف والواتساب:</span>
+                          <strong className="text-slate-800 font-mono">{inspectAccount.phone || "—"}</strong>
+                        </div>
+                        <div>
+                          <span className="text-slate-500 font-bold block">البريد الإلكتروني الرسمي:</span>
+                          <strong className="text-slate-800 font-mono">{inspectAccount.email || "—"}</strong>
+                        </div>
+                        <div>
+                          <span className="text-slate-500 font-bold block">المدينة والمحافظة:</span>
+                          <strong className="text-slate-800">{inspectAccount.city || "صنعاء"}</strong>
+                        </div>
+                        <div>
+                          <span className="text-slate-500 font-bold block">العنوان والشارع (أقرب معلم):</span>
+                          <strong className="text-slate-800">{inspectAccount.address || "—"}</strong>
+                        </div>
+                        <div>
+                          <span className="text-slate-500 font-bold block">رقم ترخيص فتح المنشأة الصيدلانية:</span>
+                          <strong className="text-teal-700 font-mono">{inspectAccount.license || "—"}</strong>
+                        </div>
+                        <div>
+                          <span className="text-slate-500 font-bold block">ترخيص مزاولة المهنة للصيدلي:</span>
+                          <strong className="text-slate-700 font-mono">{inspectAccount.practiceLicense || "لم يُسجل (اختياري)"}</strong>
+                        </div>
+                      </div>
 
-                <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-                  <h4 className="font-bold text-slate-800 flex items-center gap-2 m-0">
-                    <FileText size={18} /> الوثائق الرسمية المرفوعة ({inspectAccount.documents?.length || 0}):
-                  </h4>
-                  {inspectAccount.documents && inspectAccount.documents.length > 0 && (
-                    <Button
-                      variant="secondary"
-                      onClick={() => {
-                        setGalleryDoc(inspectAccount.documents![0]);
-                        setDocZoom(1);
-                      }}
-                    >
-                      <Eye size={15} /> فتح عارض المستندات التفاعلي الشامل
-                    </Button>
-                  )}
-                </div>
-
-                <div className="grid md:grid-cols-2 gap-3 mb-5">
-                  {[
-                    { type: "pharmacy_license", label: "ترخيص فتح الصيدلية" },
-                    { type: "practice_license", label: "ترخيص مزاولة المهنة" },
-                    { type: "commercial_register", label: "السجل التجاري" },
-                    { type: "tax_card", label: "البطاقة الضريبية" },
-                  ].map((docType) => {
-                    const doc = inspectAccount.documents?.find((d) => d.type === docType.type);
-                    return (
-                      <Card key={docType.type} className="p-3 border border-slate-200">
-                        <div className="flex justify-between items-center">
-                          <div>
-                            <strong className="block text-sm">{docType.label}</strong>
-                            <small className="text-slate-500">
-                              {doc ? doc.fileName : "لم يتم رفع هذا المستند بعد"}
-                            </small>
-                          </div>
-                          {doc ? (
+                      {!inspectAccount.verified && (
+                        <div className="flex flex-wrap items-center justify-between border-t border-slate-200 pt-4 mt-2 gap-2">
+                          <div className="flex items-center gap-2">
                             <Button
-                              variant="secondary"
-                              onClick={() => {
-                                setSingleDoc(doc);
-                                setDocZoom(1);
+                              disabled={busy}
+                              onClick={async () => {
+                                if (
+                                  await run({
+                                    type: "verify",
+                                    id: inspectAccount.id,
+                                    approve: true,
+                                  })
+                                ) {
+                                  setInspectAccount(null);
+                                }
                               }}
                             >
-                              <Eye size={15} /> معاينة الوثيقة
+                              <ShieldCheck size={16} /> اعتماد وتفعيل المنشأة فوراً ✅
                             </Button>
-                          ) : (
-                            <Badge tone="neutral">غير مرفق</Badge>
-                          )}
+                            <Button
+                              variant="danger"
+                              disabled={busy}
+                              onClick={() => setRejectModal(inspectAccount)}
+                            >
+                              رفض الطلب مع ذكر السبب
+                            </Button>
+                          </div>
+                          <Button variant="secondary" onClick={() => setInspectAccount(null)}>
+                            إلغاء
+                          </Button>
                         </div>
-                      </Card>
-                    );
-                  })}
-                </div>
-
-                {!inspectAccount.verified && (
-                  <div className="flex flex-wrap items-center justify-between border-t pt-4 mt-2">
-                    <div className="flex items-center gap-2">
-                      <Button
-                        disabled={busy}
-                        onClick={async () => {
-                          if (
-                            await run({
-                              type: "verify",
-                              id: inspectAccount.id,
-                              approve: true,
-                              licenseExpiry: inspectAccount.licenseExpiry,
-                            })
-                          ) {
-                            setInspectAccount(null);
-                          }
-                        }}
-                      >
-                        <ShieldCheck size={16} /> اعتماد وتوثيق المنشأة رسمياً
-                      </Button>
-                      <Button
-                        variant="danger"
-                        disabled={busy}
-                        onClick={() => setRejectModal(inspectAccount)}
-                      >
-                        رفض الطلب مع ذكر السبب
-                      </Button>
+                      )}
                     </div>
-                    <Button variant="secondary" onClick={() => setInspectAccount(null)}>
-                      إغلاق الملف
-                    </Button>
-                  </div>
-                )}
-              </Modal>
-            )}
-
-            {/* Modal 2A: Single Document Preview Lightbox (معاينة وثيقة محددة وسريعة) */}
-            {singleDoc && (
-              <Modal
-                title={`معاينة المستند: ${singleDoc.title}`}
-                onClose={() => setSingleDoc(null)}
-                wide
-              >
-                {/* 1. Simple Toolbar */}
-                <div className="flex flex-wrap items-center justify-between gap-2 p-2 bg-slate-100 rounded-lg mb-3 border border-slate-200">
-                  <div className="flex items-center bg-white border border-slate-200 rounded-lg p-0.5 shadow-sm">
-                    <button
-                      type="button"
-                      title="تصغير"
-                      className="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded"
-                      onClick={() => setDocZoom((z) => Math.max(0.5, Number((z - 0.25).toFixed(2))))}
-                    >
-                      <ZoomOut size={16} />
-                    </button>
-                    <span className="px-2 text-xs font-bold min-w-12 text-center text-slate-700">
-                      {Math.round(docZoom * 100)}%
-                    </span>
-                    <button
-                      type="button"
-                      title="تكبير"
-                      className="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded"
-                      onClick={() => setDocZoom((z) => Math.min(2.5, Number((z + 0.25).toFixed(2))))}
-                    >
-                      <ZoomIn size={16} />
-                    </button>
-                    <button
-                      type="button"
-                      title="إعادة ضبط الحجم الأصلي 100%"
-                      className="p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded border-r border-slate-200"
-                      onClick={() => setDocZoom(1)}
-                    >
-                      <RotateCcw size={14} />
-                    </button>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    {singleDoc.dataUrl && (
-                      <a
-                        href={singleDoc.dataUrl}
-                        download={singleDoc.fileName}
-                        className="button secondary text-xs flex items-center gap-1.5 py-1.5 px-3"
-                      >
-                        <Download size={14} /> تنزيل المستند
-                      </a>
-                    )}
-                    {singleDoc.dataUrl && (
-                      <Button
-                        variant="secondary"
-                        onClick={() => {
-                          const win = window.open("");
-                          if (win) {
-                            win.document.write(
-                              `<!DOCTYPE html><html><head><title>${singleDoc.title}</title></head><body style="margin:0;background:#0f172a;display:flex;justify-content:center;align-items:center;min-height:100vh;"><img src="${singleDoc.dataUrl}" style="max-width:100%;max-height:100vh;object-fit:contain;" /></body></html>`
-                            );
-                          }
-                        }}
-                      >
-                        <ExternalLink size={14} /> ملء الشاشة
-                      </Button>
-                    )}
-                  </div>
-                </div>
-
-                {/* 2. Document Canvas */}
-                <div className="overflow-auto max-h-[500px] min-h-[360px] p-4 bg-slate-900/5 rounded-xl border border-slate-200 flex items-center justify-center">
-                  <div
-                    style={{
-                      transform: `scale(${docZoom})`,
-                      transformOrigin: "top center",
-                      transition: "transform 0.15s ease",
-                    }}
-                  >
-                    {singleDoc.dataUrl ? (
-                      singleDoc.fileType === "pdf" && !singleDoc.dataUrl.startsWith("data:image") ? (
-                        <iframe
-                          src={singleDoc.dataUrl}
-                          title={singleDoc.title}
-                          className="w-[720px] h-[460px] border rounded bg-white shadow"
-                        />
-                      ) : (
-                        <img
-                          src={singleDoc.dataUrl}
-                          alt={singleDoc.title}
-                          className="max-h-[460px] max-w-full rounded shadow-md border bg-white"
-                        />
-                      )
-                    ) : (
-                      <p className="text-slate-500 py-10">معاينة الوثيقة غير متاحة محلياً.</p>
-                    )}
-                  </div>
-                </div>
-
-                {/* 3. Bottom Footer (Only Document Details and Close) */}
-                <div className="flex flex-wrap items-center justify-between gap-3 mt-4 pt-3 border-t border-slate-200 text-xs text-slate-500">
-                  <div>
-                    <span>الملف: <strong>{singleDoc.fileName}</strong></span>
-                    <span className="mx-2">·</span>
-                    <span>تاريخ الرفع: {new Date(singleDoc.uploadedAt).toLocaleString("ar-YE")}</span>
-                  </div>
-                  <Button variant="secondary" onClick={() => setSingleDoc(null)}>
-                    إغلاق المعاينة
-                  </Button>
-                </div>
-              </Modal>
-            )}
-
-            {/* Modal 2B: Full Interactive KYC Gallery Studio (استوديو فحص الوثائق التفاعلي الشامل) */}
-            {galleryDoc && inspectAccount && (
-              <Modal
-                title={`استوديو فحص الوثائق: ${inspectAccount.name}`}
-                onClose={() => setGalleryDoc(null)}
-                wide
-              >
-                {/* 1. Document Switcher Tabs */}
-                {inspectAccount.documents && inspectAccount.documents.length > 0 && (
-                  <div className="flex flex-wrap items-center gap-2 mb-3 pb-3 border-b border-slate-200">
-                    <span className="text-xs font-bold text-slate-500 ml-2">تنقل بين الوثائق:</span>
-                    {[
-                      { type: "pharmacy_license", label: "ترخيص المنشأة" },
-                      { type: "practice_license", label: "ترخيص المزاولة" },
-                      { type: "commercial_register", label: "السجل التجاري" },
-                      { type: "tax_card", label: "البطاقة الضريبية" },
-                    ].map((slot) => {
-                      const docItem = inspectAccount.documents?.find((d) => d.type === slot.type);
-                      const isCurrent = galleryDoc.type === slot.type;
-                      return (
-                        <button
-                          key={slot.type}
-                          type="button"
-                          disabled={!docItem}
-                          onClick={() => {
-                            if (docItem) {
-                              setGalleryDoc(docItem);
-                              setDocZoom(1);
-                            }
-                          }}
-                          className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 border ${
-                            isCurrent
-                              ? "bg-[#073B59] text-white border-[#073B59] shadow-sm"
-                              : docItem
-                              ? "bg-slate-100 text-slate-700 border-slate-200 hover:bg-teal-50 hover:text-teal-700 hover:border-teal-300"
-                              : "bg-slate-50 text-slate-400 border-slate-200 opacity-50 cursor-not-allowed"
-                          }`}
-                        >
-                          <span>{slot.label}</span>
-                          {docItem ? (
-                            <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block mr-1"></span>
-                          ) : (
-                            <span className="text-[10px] text-slate-400">(غير مرفق)</span>
-                          )}
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-
-                {/* 2. Interactive Controls Toolbar */}
-                <div className="flex flex-wrap items-center justify-between gap-2 p-2 bg-slate-100 rounded-lg mb-3 border border-slate-200">
-                  <div className="flex items-center bg-white border border-slate-200 rounded-lg p-0.5 shadow-sm">
-                    <button
-                      type="button"
-                      title="تصغير"
-                      className="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded"
-                      onClick={() => setDocZoom((z) => Math.max(0.5, Number((z - 0.25).toFixed(2))))}
-                    >
-                      <ZoomOut size={16} />
-                    </button>
-                    <span className="px-2 text-xs font-bold min-w-12 text-center text-slate-700">
-                      {Math.round(docZoom * 100)}%
-                    </span>
-                    <button
-                      type="button"
-                      title="تكبير"
-                      className="p-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded"
-                      onClick={() => setDocZoom((z) => Math.min(2.5, Number((z + 0.25).toFixed(2))))}
-                    >
-                      <ZoomIn size={16} />
-                    </button>
-                    <button
-                      type="button"
-                      title="إعادة ضبط الحجم الأصلي 100%"
-                      className="p-1.5 text-slate-500 hover:text-slate-900 hover:bg-slate-100 rounded border-r border-slate-200"
-                      onClick={() => setDocZoom(1)}
-                    >
-                      <RotateCcw size={14} />
-                    </button>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    {galleryDoc.dataUrl && (
-                      <a
-                        href={galleryDoc.dataUrl}
-                        download={galleryDoc.fileName}
-                        className="button secondary text-xs flex items-center gap-1.5 py-1.5 px-3"
-                      >
-                        <Download size={14} /> تنزيل المستند
-                      </a>
-                    )}
-                    {galleryDoc.dataUrl && (
-                      <Button
-                        variant="secondary"
-                        onClick={() => {
-                          const win = window.open("");
-                          if (win) {
-                            win.document.write(
-                              `<!DOCTYPE html><html><head><title>${galleryDoc.title}</title></head><body style="margin:0;background:#0f172a;display:flex;justify-content:center;align-items:center;min-height:100vh;"><img src="${galleryDoc.dataUrl}" style="max-width:100%;max-height:100vh;object-fit:contain;" /></body></html>`
-                            );
-                          }
-                        }}
-                      >
-                        <ExternalLink size={14} /> ملء الشاشة
-                      </Button>
-                    )}
-                  </div>
-                </div>
-
-                {/* 3. Document Viewport Canvas */}
-                <div className="overflow-auto max-h-[500px] min-h-[360px] p-4 bg-slate-900/5 rounded-xl border border-slate-200 flex items-center justify-center">
-                  <div
-                    style={{
-                      transform: `scale(${docZoom})`,
-                      transformOrigin: "top center",
-                      transition: "transform 0.15s ease",
-                    }}
-                  >
-                    {galleryDoc.dataUrl ? (
-                      galleryDoc.fileType === "pdf" && !galleryDoc.dataUrl.startsWith("data:image") ? (
-                        <iframe
-                          src={galleryDoc.dataUrl}
-                          title={galleryDoc.title}
-                          className="w-[720px] h-[460px] border rounded bg-white shadow"
-                        />
-                      ) : (
-                        <img
-                          src={galleryDoc.dataUrl}
-                          alt={galleryDoc.title}
-                          className="max-h-[460px] max-w-full rounded shadow-md border bg-white"
-                        />
-                      )
-                    ) : (
-                      <p className="text-slate-500 py-10">معاينة الوثيقة غير متاحة محلياً.</p>
-                    )}
-                  </div>
-                </div>
-
-                {/* 4. Document Metadata & Bottom Actions - UNIFIED LAYOUT */}
-                <div className="flex flex-wrap items-center justify-between gap-3 mt-4 pt-3 border-t border-slate-200 text-xs text-slate-500">
-                  <div>
-                    <span>الملف: <strong>{galleryDoc.fileName}</strong></span>
-                    <span className="mx-2">·</span>
-                    <span>تاريخ الرفع: {new Date(galleryDoc.uploadedAt).toLocaleString("ar-YE")}</span>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    {!inspectAccount.verified && (
-                      <>
-                        <Button
-                          disabled={busy}
-                          onClick={async () => {
-                            if (
-                              await run({
-                                type: "verify",
-                                id: inspectAccount.id,
-                                approve: true,
-                                licenseExpiry: inspectAccount.licenseExpiry,
-                              })
-                            ) {
-                              setGalleryDoc(null);
-                              setInspectAccount(null);
-                            }
-                          }}
-                        >
-                          <ShieldCheck size={16} /> اعتماد وتوثيق المنشأة رسمياً
-                        </Button>
-                        <Button
-                          variant="danger"
-                          disabled={busy}
-                          onClick={() => {
-                            setGalleryDoc(null);
-                            setRejectModal(inspectAccount);
-                          }}
-                        >
-                          رفض الطلب مع ذكر السبب
-                        </Button>
-                      </>
-                    )}
-                    <Button variant="secondary" onClick={() => setGalleryDoc(null)}>
-                      إغلاق الاستوديو
-                    </Button>
-                  </div>
-                </div>
+                  );
+                })()}
               </Modal>
             )}
 
@@ -1138,48 +761,6 @@ export function Management({
                     </Button>
                     <Button type="submit" variant="danger" disabled={busy}>
                       تأكيد قرار التجميد
-                    </Button>
-                  </div>
-                </Form>
-              </Modal>
-            )}
-
-            {/* Modal 4: Renew License Date */}
-            {renewModal && (
-              <Modal
-                title={`تمديد / تجديد ترخيص: ${renewModal.name}`}
-                onClose={() => setRenewModal(null)}
-              >
-                <Form
-                  onSubmit={async (f) => {
-                    const expiry = String(f.get("expiry"));
-                    if (
-                      await run({
-                        type: "updateLicenseExpiry",
-                        id: renewModal.id,
-                        expiry,
-                      })
-                    ) {
-                      setRenewModal(null);
-                    }
-                  }}
-                >
-                  <p className="text-sm text-slate-600 mb-3">
-                    أدخل تاريخ الانتهاء الجديد المعتمد وفق سند التجديد الرسمي الصادر من وزارة الصحة.
-                  </p>
-                  <Field
-                    name="expiry"
-                    type="date"
-                    label="تاريخ الانتهاء الجديد للترخيص"
-                    defaultValue={renewModal.licenseExpiry || ""}
-                    required
-                  />
-                  <div className="flex justify-end gap-3 mt-4">
-                    <Button type="button" variant="secondary" onClick={() => setRenewModal(null)}>
-                      إلغاء
-                    </Button>
-                    <Button type="submit" disabled={busy}>
-                      حفظ وتحديث الترخيص
                     </Button>
                   </div>
                 </Form>
@@ -1344,17 +925,39 @@ export function Management({
 
               const ledgerEntries =
                 state.feeLedger && state.feeLedger.length > 0
-                  ? state.feeLedger.slice().reverse()
-                  : completedOrders.map((o) => ({
-                      id: o.id,
-                      orderId: o.id,
-                      amount: o.amount,
-                      fee: o.fee || (o.amount * activeFee) / 100,
-                      feePercent: activeFee,
-                      sellerBranchId: o.seller,
-                      buyerBranchId: o.buyer,
-                      at: o.created,
-                    })).reverse();
+                  ? state.feeLedger
+                      .map((e) => {
+                        const calculatedFee =
+                          e.fee && e.fee > 0
+                            ? e.fee
+                            : Math.round(
+                                (e.amount * (e.feePercent || activeFee)) / 100,
+                              ) ||
+                              (totalEarnings > 0 && state.feeLedger!.length === 1
+                                ? totalEarnings
+                                : 0);
+                        return {
+                          ...e,
+                          fee: calculatedFee,
+                        };
+                      })
+                      .slice()
+                      .reverse()
+                  : completedOrders
+                      .map((o) => ({
+                        id: o.id,
+                        orderId: o.id,
+                        amount: o.amount,
+                        fee:
+                          o.fee && o.fee > 0
+                            ? o.fee
+                            : Math.round((o.amount * activeFee) / 100),
+                        feePercent: activeFee,
+                        sellerBranchId: o.seller,
+                        buyerBranchId: o.buyer,
+                        at: o.created,
+                      }))
+                      .reverse();
 
               return (
                 <>
@@ -1780,17 +1383,33 @@ export function Management({
           {branches.length > 0 &&
             branches.map((b) => (
               <div key={b.id} className="space-y-4">
-                {branches.length > 1 && (
+                {branches.length > 1 ? (
                   <div className="flex items-center gap-2 pt-2 border-t border-slate-200 first:border-t-0 first:pt-0">
                     <Building2 size={16} className="text-[#073B59]" />
                     <h3 className="text-base font-bold text-slate-800 m-0">
                       إعدادات وسياسات: {b.name}
                     </h3>
                   </div>
+                ) : (
+                  <div className="flex items-center gap-2 pt-2 border-t border-slate-200">
+                    <Sliders size={18} className="text-teal-700" />
+                    <div>
+                      <h3 className="text-base font-bold text-slate-800 m-0">
+                        {actor.role === "independent"
+                          ? "السياسات العامة الموحدة للصيدلية (الموردين ونسبة الخصم)"
+                          : "السياسات التشغيلية المعتمدة"}
+                      </h3>
+                      <p className="text-xs text-slate-500 m-0">
+                        {actor.role === "independent"
+                          ? "تُحدد هذه السياسات حصراً هنا في الإعدادات وتُطبق تلقائياً على كافة أدوية ومبيعات الصيدلية دون الحاجة لتحديدها لكل بند على حدة."
+                          : "السياسات المعتمدة للمورد وفترات السماح ونسب الخصم."}
+                      </p>
+                    </div>
+                  </div>
                 )}
 
                 <div className="grid md:grid-cols-2 gap-5 items-stretch">
-                  {/* Card 1: Supplier Return Alerts */}
+                  {/* Card 1: Supplier & Return Policy */}
                   <Card className="flex flex-col justify-between p-5 border border-slate-200 hover:border-amber-300 transition-colors shadow-sm">
                     <div>
                       <div className="flex items-center gap-3 mb-3">
@@ -1799,40 +1418,92 @@ export function Management({
                         </div>
                         <div>
                           <h3 className="m-0 text-base font-bold text-slate-800">
-                            تنبيهات مرتجعات الموردين
+                            {actor.role === "agency_branch"
+                              ? "سياسة المورد ومهلة الإرجاع المعتمدة من الإدارة"
+                              : actor.role === "independent"
+                                ? "المورد المعتمد وسياسة مهل الإرجاع"
+                                : "سياسة المورد ومهلة الإرجاع"}
                           </h3>
                           <span className="text-[11px] text-slate-400 font-normal">
-                            {b.name}
+                            {actor.role === "independent" ? "تسري آلياً على كافة أدوية الصيدلية" : b.name}
                           </span>
                         </div>
                       </div>
                       <p className="text-xs text-slate-500 mb-4 leading-relaxed">
-                        المدة الافتراضية بالأيام لتنبيه الصيدلية قبل انتهاء مهلة إرجاع المورد لجميع الأصناف، ما لم يُحدد استثناء خاص بالدواء من شاشة المخزون.
+                        {actor.role === "agency_branch"
+                          ? `سياسة المورد وفترات مهل الإرجاع تخضع للإدارة المركزية للسلسلة. تم اعتماد ${b.supplierName || "شركة اليمامة للأدوية"} بمهلة إرجاع قبل انتهاء الصلاحية بـ (${b.returnWindowDays ?? 90} يوماً). تُحسب مواعيد كافة أدوية الفرع آلياً.`
+                          : actor.role === "independent"
+                            ? "تحديد المورد المعتمد لصيدليتكم مع شرط مهلة الإرجاع قبل انتهاء الصلاحية؛ لحساب مواعيد وتنبيهات كافة أدوية الصيدلية آلياً في رادار المرتجعات دون حاجة لتحديدها في كل بند."
+                            : "تحديد المورد المعتمد للفرع مع شرط مهلة الإرجاع قبل انتهاء الصلاحية، لحساب مهل كافة أدوية الفرع آلياً والتنبيه قبل فواتها."}
                       </p>
                     </div>
 
-                    <Form
-                      onSubmit={(f) =>
-                        run({
-                          type: "alertDefault",
-                          branchId: b.id,
-                          days: Number(f.get("days")),
-                        })
-                      }
-                      className="mt-auto"
-                    >
-                      <Field
-                        name="days"
-                        label="مدة التنبيه الافتراضية بالأيام"
-                        type="number"
-                        min={0}
-                        max={365}
-                        defaultValue={b.alertDays ?? 10}
-                      />
-                      <Button type="submit" disabled={busy} className="w-full justify-center">
-                        حفظ مدة التنبيه
-                      </Button>
-                    </Form>
+                    {actor.role === "agency_branch" ? (
+                      <div className="text-[11px] text-amber-950 bg-amber-50/80 p-3.5 rounded-xl border border-amber-200 space-y-2 mt-auto">
+                        <div className="flex items-center gap-2 font-bold text-amber-800">
+                          <ShieldAlert size={16} className="text-amber-600 shrink-0" />
+                          <span>سياسة مورد الفرع معتمدة مركزياً من إدارة السلسلة</span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 text-xs pt-1 border-t border-amber-200/60">
+                          <div>
+                            <span className="text-slate-500">المورد المعتمد:</span>{" "}
+                            <strong className="text-slate-800">{b.supplierName || "شركة اليمامة للأدوية"}</strong>
+                          </div>
+                          <div>
+                            <span className="text-slate-500">شرط الإرجاع:</span>{" "}
+                            <strong className="text-slate-800">قبل {b.returnWindowDays ?? 90} يوماً</strong>
+                          </div>
+                          <div className="col-span-2">
+                            <span className="text-slate-500">التنبيه المسبق:</span>{" "}
+                            <strong className="text-slate-800">{b.alertDays ?? 10} أيام قبل حلول المهلة</strong>
+                          </div>
+                        </div>
+                        <p className="text-[10px] text-amber-700 m-0">
+                          تعديل سياسة المورد وفترات السماح محصور بصلاحيات الإدارة المركزية للسلسلة وتُطبق آلياً على أدويتكم.
+                        </p>
+                      </div>
+                    ) : (
+                      <Form
+                        onSubmit={(f) =>
+                          run({
+                            type: "setBranchSupplierPolicy",
+                            branchId: b.id,
+                            supplierName: String(f.get("supplierName") || ""),
+                            returnWindowDays: Number(f.get("returnWindowDays") || 90),
+                            alertDays: Number(f.get("days") || 10),
+                          })
+                        }
+                        className="mt-auto flex flex-col gap-3"
+                      >
+                        <Field
+                          name="supplierName"
+                          label={actor.role === "independent" ? "المورد المعتمد للصيدلية" : "المورد المعتمد للفرع"}
+                          defaultValue={b.supplierName ?? (actor.role === "independent" ? "شركة الرعاية الحديثة للأدوية" : "شركة اليمامة للأدوية")}
+                          placeholder={actor.role === "independent" ? "مثال: شركة الرعاية الحديثة للأدوية" : "مثال: شركة اليمامة للأدوية"}
+                        />
+                        <div className="grid grid-cols-2 gap-2">
+                          <Field
+                            name="returnWindowDays"
+                            label="شرط الإرجاع (قبل الصلاحية بـ أيام)"
+                            type="number"
+                            min={1}
+                            max={365}
+                            defaultValue={b.returnWindowDays ?? 90}
+                          />
+                          <Field
+                            name="days"
+                            label="التنبيه المسبق (أيام قبل المهلة)"
+                            type="number"
+                            min={0}
+                            max={365}
+                            defaultValue={b.alertDays ?? 10}
+                          />
+                        </div>
+                        <Button type="submit" disabled={busy} className="w-full justify-center mt-2">
+                          {actor.role === "independent" ? "اعتماد سياسة مورد الصيدلية" : "اعتماد سياسة مورد الفرع"}
+                        </Button>
+                      </Form>
+                    )}
                   </Card>
 
                   {/* Card 2: Sales Discount Policy */}
@@ -1847,10 +1518,12 @@ export function Management({
                             <h3 className="m-0 text-base font-bold text-slate-800">
                               {actor.role === "agency_branch"
                                 ? "خصم المبيعات المعتمد من الإدارة"
-                                : "نسبة الخصم الافتراضية للمبيعات"}
+                                : actor.role === "independent"
+                                  ? "نسبة الخصم العامة لمبيعات البورصة"
+                                  : "نسبة الخصم الافتراضية للمبيعات"}
                             </h3>
                             <span className="text-[11px] text-slate-400 font-normal">
-                              {b.name}
+                              {actor.role === "independent" ? "تسري تلقائياً وموحّدة على كافة مبيعات الصيدلية" : b.name}
                             </span>
                           </div>
                         </div>
@@ -1861,7 +1534,9 @@ export function Management({
                       <p className="text-xs text-slate-500 mb-4 leading-relaxed">
                         {actor.role === "agency_branch"
                           ? `سياسة التسعير والخصم في البورصة تخضع للإدارة المركزية للسلسلة. تم اعتماد نسبة ${b.defaultDiscount ? `${b.defaultDiscount}٪` : "0٪ (السعر المرجعي كاملاً)"} كافتراضي لمبيعات هذا الفرع.`
-                          : `النسبة الافتراضية المعتمدة لخصم أصناف الصيدلية في البورصة؛ يمكن تحديد أي نسبة بحرية تامة (من 0٪ حتى 99٪)، مع إمكانية استثناء أي صنف يدوياً عند عرضه.`}
+                          : actor.role === "independent"
+                            ? "النسبة العامة المعتمدة لخصم أدوية الصيدلية عند طرحها في البورصة الدوائية؛ تسري تلقائياً على كافة مبيعات الصيدلية لتوفير الوقت دون الحاجة لتحديد خصم لكل بند على حدة."
+                            : "النسبة الافتراضية المعتمدة لخصم أصناف الصيدلية في البورصة؛ تسري كسياسة افتراضية لكافة مبيعات الفرع."}
                       </p>
                     </div>
 
@@ -1883,7 +1558,7 @@ export function Management({
                       >
                         <Field
                           name="discount"
-                          label="نسبة الخصم الافتراضية للصيدلية (٪)"
+                          label={actor.role === "independent" ? "نسبة الخصم العامة للصيدلية (٪)" : "نسبة الخصم الافتراضية للفرع (٪)"}
                           type="number"
                           min={0}
                           max={99}
@@ -1891,7 +1566,7 @@ export function Management({
                           defaultValue={b.defaultDiscount ?? 0}
                         />
                         <Button type="submit" disabled={busy} className="w-full justify-center">
-                          حفظ نسبة الخصم الافتراضية
+                          {actor.role === "independent" ? "اعتماد وتطبيق نسبة الخصم العامة" : "حفظ نسبة الخصم الافتراضية"}
                         </Button>
                       </Form>
                     )}

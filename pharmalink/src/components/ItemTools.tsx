@@ -8,10 +8,17 @@ import {
   offerEvents,
 } from "../domain/offers";
 import { useState } from "react";
-import { Percent } from "lucide-react";
+import { Percent, Clock, ShieldAlert, ShieldCheck } from "lucide-react";
 import type { Item } from "../domain/types";
 import { useApp } from "../context";
-import { available, eligible, eligibilityReasons } from "../domain/access";
+import {
+  available,
+  eligible,
+  eligibilityReasons,
+  getEffectiveSupplier,
+  getEffectiveReturnDeadline,
+  getEffectiveAlertDays,
+} from "../domain/access";
 import { Button, Field, Form, Badge, ConfirmModal, money } from "./UI";
 export function SaleEditor({
   item: i,
@@ -121,35 +128,42 @@ export function SaleEditor({
               : "وقت سابق غير مسجل"}
           </dd>
         </dl>
-        <Button
-          disabled={
-            actor.role === "agency_branch" && existing.status === "published"
-          }
-          onClick={() => setEdit(true)}
-        >
-          {existing.status === "withdrawn"
-            ? "مراجعة وإعادة النشر"
-            : existing.status === "published"
-              ? "تعديل العرض"
-              : actor.role === "agency_branch"
-                ? "تعديل طلب الاعتماد"
-                : "إكمال السعر والنشر"}
-        </Button>
-        {existing.status !== "withdrawn" && (
+        <div className="flex flex-wrap gap-2 pt-2">
           <Button
-            variant="danger"
             disabled={
-              busy ||
-              (actor.role === "agency_branch" &&
-                existing.status === "published")
+              actor.role === "agency_branch" && existing.status === "published"
             }
-            onClick={() => setConfirmWithdraw(true)}
+            onClick={() => setEdit(true)}
           >
-            {existing.status === "published"
-              ? "إيقاف العرض"
-              : "إلغاء طلب الاعتماد"}
+            {existing.status === "withdrawn"
+              ? "مراجعة وإعادة النشر"
+              : existing.status === "published"
+                ? "تعديل بيانات العرض ✏️"
+                : actor.role === "agency_branch"
+                  ? "تعديل طلب الاعتماد"
+                  : "إكمال السعر والنشر"}
           </Button>
-        )}
+          {existing.status !== "withdrawn" && (
+            <Button
+              variant="danger"
+              disabled={
+                busy ||
+                (actor.role === "agency_branch" &&
+                  existing.status === "published")
+              }
+              onClick={() => setConfirmWithdraw(true)}
+            >
+              {existing.status === "published"
+                ? "إيقاف العرض مؤقتاً"
+                : "إلغاء طلب الاعتماد"}
+            </Button>
+          )}
+          {onDone && (
+            <Button variant="secondary" onClick={onDone}>
+              إغلاق النافذة
+            </Button>
+          )}
+        </div>
         {confirmWithdraw && (
           <ConfirmModal
             title="تأكيد إيقاف العرض"
@@ -184,59 +198,120 @@ export function SaleEditor({
         <p>السحب لا يلغي الطلبات القائمة، ولا يحذف تاريخ العمليات.</p>
       </div>
     );
-  if (preview)
+  if (preview) {
+    const displayQty = preview.quantity / factor;
+    const origUnitPrice = fullPrice;
+    const finalUnitPrice = preview.price;
+    const origTotal = origUnitPrice * displayQty;
+    const finalTotal = finalUnitPrice * displayQty;
+    const totalDiscountAmount = Math.max(0, origTotal - finalTotal);
+    const unitDiscountAmount = Math.max(0, origUnitPrice - finalUnitPrice);
+
     return (
       <div className="form-grid">
-        <h3>معاينة العرض قبل التأكيد</h3>
-        <p>
+        <h3 className="text-base font-bold text-slate-800">
+          معاينة العرض قبل التأكيد
+        </h3>
+        <p className="text-xs text-slate-500 m-0">
           {i.name} · {i.batch} · {i.expiry}
         </p>
-        <p>
-          للشراء الجديد: {preview.quantity / factor} {unit}
+
+        <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 space-y-2.5 text-xs mt-2">
+          <div className="flex justify-between items-center text-slate-700">
+            <span>الكمية المعروضة للشراء:</span>
+            <strong className="font-bold text-slate-900 text-sm">
+              {displayQty} {unit}
+            </strong>
+          </div>
+
+          <div className="flex justify-between items-center text-slate-600 border-t border-slate-200/70 pt-2">
+            <span>السعر المرجعي الأصلي ({unit}):</span>
+            <span>
+              {money(origUnitPrice)} · إجمالي القيمة: {money(origTotal)}
+            </span>
+          </div>
+
+          {preview.discountPercent !== undefined &&
+            preview.discountPercent > 0 && (
+              <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-2.5 text-emerald-900 flex justify-between items-start gap-2">
+                <div>
+                  <strong className="block text-xs font-bold text-emerald-800">
+                    خصم معتمد: {preview.discountPercent}٪
+                    {independent
+                      ? " (وفق السياسة العامة لإعدادات الصيدلية)"
+                      : preview.saveItemDiscount
+                        ? " (حفظ كاستثناء دائم لهذا الدواء)"
+                        : " (وفق السياسة الافتراضية)"}
+                  </strong>
+                  <span className="text-[11px] text-emerald-700 mt-0.5 block">
+                    وفر {money(unitDiscountAmount)} في كل {unit} · إجمالي الخصم
+                    الممنوح لكامل الكمية ({displayQty} {unit}):{" "}
+                    <strong>{money(totalDiscountAmount)}</strong>
+                  </span>
+                </div>
+                <span className="font-bold text-sm text-emerald-800 shrink-0">
+                  -{money(totalDiscountAmount)}
+                </span>
+              </div>
+            )}
+
+          <div className="flex justify-between items-center pt-2 border-t border-slate-200 text-sm font-bold text-slate-900">
+            <span>سعر البيع المعتمد في البورصة:</span>
+            <div className="text-left">
+              <span className="text-teal-700 font-extrabold text-base">
+                {money(finalUnitPrice)}
+              </span>
+              <span className="text-xs font-normal text-slate-500 block">
+                صافي قيمة المعروض ({displayQty} {unit}): {money(finalTotal)}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <p className="text-[11px] text-slate-500 leading-relaxed m-0">
+          💡 <strong>ملاحظة محاسبية:</strong> نسبة الخصم (
+          {preview.discountPercent || 0}٪) تسري بشكل موحد وعادل على كل {unit}{" "}
+          وتتضاعف تلقائياً مع إجمالي الكمية المطلوبة. لا يُخصم النشر من رصيد
+          المخزون، والطلبات القائمة لا تتغير.
         </p>
-        <p>
-          سعر الوحدة: {money(preview.price)} · قيمة المعروض:{" "}
-          {money((preview.price * preview.quantity) / factor)}
-        </p>
-        {preview.discountPercent !== undefined && (
-          <p className="text-emerald-700 font-bold text-sm">
-            خصم معتمد: {preview.discountPercent}٪
-            {preview.saveItemDiscount
-              ? " (سيتم حفظه كاستثناء دائم لهذا الدواء)"
-              : " (وفق السياسة الافتراضية)"}
-          </p>
-        )}
-        <p>لا يخصم النشر المخزون، والطلبات القائمة لا تتغير.</p>
-        <Button
-          disabled={busy}
-          onClick={async () => {
-            if (await run(preview)) {
-              setPreview(null);
-              setEdit(false);
-              onDone?.();
-            }
-          }}
-        >
-          {actor.role === "agency_branch"
-            ? "تأكيد الإرسال للإدارة"
-            : existing?.status === "withdrawn"
-              ? "تأكيد إعادة النشر"
-              : existing
-                ? "تأكيد حفظ التعديل"
-                : "تأكيد النشر"}
-        </Button>
-        <Button variant="secondary" onClick={() => setPreview(null)}>
-          رجوع للبيانات
-        </Button>
+
+        <div className="flex items-center gap-2.5 pt-3 border-t border-slate-100 flex-wrap">
+          <Button
+            disabled={busy}
+            onClick={async () => {
+              if (await run(preview)) {
+                setPreview(null);
+                setEdit(false);
+                onDone?.();
+              }
+            }}
+          >
+            {actor.role === "agency_branch"
+              ? "تأكيد الإرسال للإدارة"
+              : existing?.status === "withdrawn"
+                ? "تأكيد إعادة النشر في البورصة ✅"
+                : existing
+                  ? "تأكيد حفظ التعديل ✅"
+                  : "تأكيد ونشر العرض في البورصة ✅"}
+          </Button>
+          <Button variant="secondary" onClick={() => setPreview(null)}>
+            تعديل البيانات ✏️
+          </Button>
+        </div>
       </div>
     );
+  }
   return (
     <Form
       onSubmit={(f) => {
-        const computedDiscount =
-          typeof discountVal === "number"
+        const computedDiscount = independent
+          ? branchDefaultDiscount
+          : typeof discountVal === "number"
             ? discountVal
             : Math.max(0, Math.round((1 - priceVal / fullPrice) * 100));
+        const finalPrice = independent
+          ? Math.round(fullPrice * (1 - branchDefaultDiscount / 100) * 100) / 100
+          : priceVal;
         setPreview({
           type: "saveSale",
           itemId: i.id,
@@ -244,10 +319,10 @@ export function SaleEditor({
           resume: existing?.status === "withdrawn",
           quantity: Number(f.get("qty")) * factor,
           factor,
-          price: priceVal,
+          price: finalPrice,
           note: String(f.get("note") || ""),
           discountPercent: computedDiscount,
-          saveItemDiscount: saveException,
+          saveItemDiscount: independent ? false : saveException,
         });
       }}
     >
@@ -264,7 +339,7 @@ export function SaleEditor({
         {existing
           ? "عدّل الكمية أو السعر ونسبة الخصم، ثم اضغط معاينة التعديل للتأكيد والحفظ."
           : independent
-            ? "أنت صاحب القرار؛ حدد الكمية والسعر ثم انشر."
+            ? "حدد كمية البيع ووحدة التداول؛ ويُطبّق الخصم والسعر تلقائياً وفق إعدادات صيدليتكم العامة."
             : actor.role === "agency_master"
               ? "راجعي كمية الفرع وسعر وحدة البيع، ثم اعتمدي النشر للطلبات الجديدة."
               : "الفرع يرسل الكمية للإدارة؛ التسعير والنشر للإدارة."}
@@ -311,7 +386,41 @@ export function SaleEditor({
         max={Math.floor(available(state, i.id) / factor)}
         defaultValue={existing ? Math.max(1, remaining(state, existing)) : 1}
       />
-      {actor.role === "agency_branch" ? (
+      {independent ? (
+        <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 mb-4 text-right">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm font-bold text-slate-800 flex items-center gap-1.5">
+              <Percent size={15} className="text-teal-600" />
+              سياسة الخصم والتسعير المعتمدة للصيدلية
+            </span>
+            <span className="text-xs text-slate-500">
+              السعر المرجعي الرسمي: <strong>{money(fullPrice)}</strong>
+            </span>
+          </div>
+
+          <div className="bg-white p-3 rounded-lg border border-slate-200 mb-2">
+            <div className="flex items-center justify-between text-xs mb-1">
+              <span className="text-slate-600">نسبة الخصم العامة للصيدلية:</span>
+              <strong className="text-teal-700 font-bold">
+                {branchDefaultDiscount}٪{branchDefaultDiscount === 0 ? " (بدون خصم)" : ""}
+              </strong>
+            </div>
+            <div className="flex items-center justify-between text-xs pt-1.5 border-t border-slate-100">
+              <span className="text-slate-600">سعر البيع النهائي بالبورصة ({unit}):</span>
+              <strong className="text-teal-800 text-sm">
+                {money(Math.round(fullPrice * (1 - branchDefaultDiscount / 100) * 100) / 100)}
+              </strong>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-1 text-[11px] text-slate-500 pt-1">
+            <span>تُطبق نسبة الخصم المعتمدة في الإعدادات العامة تلقائياً وموحّدة دون حاجة لضبطها لكل صنف.</span>
+            <a href="#settings" className="text-teal-700 hover:text-teal-900 font-bold shrink-0">
+              تعديل النسبة في الإعدادات ←
+            </a>
+          </div>
+        </div>
+      ) : actor.role === "agency_branch" ? (
         <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 mb-4 text-right">
           <div className="flex items-center justify-between mb-2">
             <span className="text-sm font-bold text-slate-800 flex items-center gap-1.5">
@@ -437,12 +546,11 @@ export function SaleEditor({
           disabled={busy || !eligible(i, state.minExpiryDays ?? 30) || available(state, i.id) < factor}
           type="submit"
         >
-          معاينة{" "}
           {existing?.status === "withdrawn"
-            ? "إعادة النشر"
+            ? "مراجعة وإعادة النشر ←"
             : existing
-              ? "التعديل"
-              : "العرض"}
+              ? "مراجعة وتأكيد التعديل ←"
+              : "مراجعة وتأكيد النشر ←"}
         </Button>
         {edit && (
           <Button
@@ -450,12 +558,14 @@ export function SaleEditor({
             onClick={() => {
               if (initialEdit && onDone) {
                 onDone();
+              } else if (!existing && onDone) {
+                onDone();
               } else {
                 setEdit(false);
               }
             }}
           >
-            إلغاء التعديل
+            {existing ? "إلغاء التعديل" : "إلغاء وتراجع"}
           </Button>
         )}
       </div>
@@ -558,148 +668,122 @@ export function Packaging({ item: i }: { item: Item }) {
   );
 }
 export function SupplierForm({ item: i }: { item: Item }) {
-  const { state, run, busy } = useApp();
+  const { state, actor } = useApp();
+  const branch = state.branches.find((b) => b.id === i.branchId);
+  const effectiveSupplier = getEffectiveSupplier(i, state);
+  const effectiveDeadline = getEffectiveReturnDeadline(i, state);
+  const effectiveAlertDays = getEffectiveAlertDays(i, state);
+  const isIndependent = actor.role === "independent";
+
   return (
-    <Form
-      onSubmit={(f) =>
-        run({
-          type: "setDeadline",
-          itemId: i.id,
-          supplier: String(f.get("supplier")),
-          date: String(f.get("date")),
-          days:
-            String(f.get("days")) === "" ? undefined : Number(f.get("days")),
-          status: String(f.get("status")) as "open",
-        })
-      }
-    >
-      <h3>مرتجعات المورد</h3>
-      <Field
-        name="supplier"
-        label="اسم المورد"
-        defaultValue={i.supplier || ""}
-      />
-      <Field
-        name="date"
-        required={false}
-        label="آخر موعد إرجاع أو الموعد الجديد بعد التمديد"
-        type="date"
-        defaultValue={i.returnDeadline || ""}
-      />
-      <Field
-        name="days"
-        label={`نبّهني قبل (أيام)؛ الافتراضي ${state.branches.find((b) => b.id === i.branchId)?.alertDays ?? 10}`}
-        type="number"
-        min={0}
-        max={365}
-        required={false}
-        defaultValue={i.alertDays ?? ""}
-      />
-      <label className="field">
-        <span>حالة المتابعة</span>
-        <select name="status" defaultValue={i.returnStatus || "open"}>
-          <option value="open">متابعة مفتوحة / تمديد الموعد</option>
-          <option value="returned">تم الإرجاع — إغلاق التذكير</option>
-          <option value="refused">المورد رفض — إغلاق التذكير</option>
-          <option value="not_returnable">غير قابل للإرجاع</option>
-        </select>
-      </label>
-      <p>
-        إغلاق التذكير لا يخصم المخزون. سجل خروج البضاعة الفعلي بتسوية موثقة؛ لا
-        تؤكد الإرجاع لمجرد الاتفاق مع المورد.
-      </p>
-      <Button disabled={busy} type="submit">
-        حفظ سياسة الإرجاع
-      </Button>
-    </Form>
+    <div className="space-y-3">
+      <div className="flex items-center gap-2 mb-1">
+        <Clock size={18} className="text-amber-600" />
+        <h3 className="m-0 text-base font-bold text-slate-800">
+          سياسة المورد ومهلة الإرجاع (رادار التنبيه)
+        </h3>
+      </div>
+
+      {/* كشف معتمد للقراءة فقط */}
+      <div className="bg-amber-50/80 border border-amber-200 rounded-xl p-3.5 text-xs text-amber-950 space-y-2">
+        <div className="flex items-center gap-2 font-bold text-amber-800">
+          {isIndependent ? (
+            <ShieldCheck size={15} className="text-teal-600 shrink-0" />
+          ) : (
+            <ShieldAlert size={15} className="text-amber-600 shrink-0" />
+          )}
+          <span>
+            {isIndependent
+              ? "معتمد وفق إعدادات الصيدلية العامة ومحسوب آلياً"
+              : "معتمد وفق سياسة الإدارة المركزية للسلسلة ومحسوب آلياً"}
+          </span>
+        </div>
+        <div className="grid grid-cols-2 gap-2 pt-1 border-t border-amber-200/60">
+          <div>
+            <span className="text-slate-500">المورد المعتمد:</span>{" "}
+            <strong className="text-slate-800">{effectiveSupplier}</strong>
+          </div>
+          <div>
+            <span className="text-slate-500">تاريخ الصلاحية:</span>{" "}
+            <strong className="text-slate-800">{i.expiry}</strong>
+          </div>
+          <div>
+            <span className="text-slate-500">مهلة المورد:</span>{" "}
+            <strong className="text-teal-700 font-bold">{effectiveDeadline || "غير محددة"}</strong>
+            <span className="block text-[10px] text-teal-600">
+              (قبل {branch?.returnWindowDays ?? 90} يوماً من الصلاحية)
+            </span>
+          </div>
+          <div>
+            <span className="text-slate-500">التنبيه المسبق:</span>{" "}
+            <strong className="text-slate-800">{effectiveAlertDays} أيام قبل المهلة</strong>
+          </div>
+        </div>
+        <p className="text-[10px] text-amber-700 m-0 leading-relaxed">
+          {isIndependent
+            ? "تُطبق سياسة المورد والمهل تلقائياً على كافة أدوية الصيدلية وفق المحدد في صفحة الإعدادات لتنبيهكم مبكراً عبر رادار المرتجعات دون حاجة لتحديدها لكل بند يدوياً."
+            : "تُطبق المهل والمورد تلقائياً من إدارة السلسلة لتنبيهك مبكراً عبر رادار المرتجعات، وتوجيه الصنف للبورصة الدوائية أو المناقلات لحماية رأس المال."}
+        </p>
+        {isIndependent && (
+          <div className="pt-2 border-t border-amber-200/60 flex justify-end">
+            <a
+              href="#settings"
+              className="text-teal-700 hover:text-teal-900 font-bold text-[11px] inline-flex items-center gap-1"
+            >
+              تعديل سياسة مورد الصيدلية من الإعدادات ←
+            </a>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
 export function ItemDiscountForm({ item: i }: { item: Item }) {
-  const { state, actor, run, busy } = useApp();
+  const { state, actor } = useApp();
   const branch = state.branches.find((b) => b.id === i.branchId);
   const defaultDiscount = branch?.defaultDiscount ?? 0;
-
-  if (actor.role === "agency_branch") {
-    return (
-      <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-right mb-4">
-        <div className="flex items-center justify-between gap-2 mb-2">
-          <div className="flex items-center gap-2">
-            <Percent size={16} className="text-teal-600" />
-            <h3 className="m-0 text-sm font-bold text-slate-800">
-              سياسة خصم الصنف في البورصة
-            </h3>
-          </div>
-          <span className="bg-teal-50 text-teal-700 font-bold px-2 py-0.5 rounded text-xs border border-teal-200">
-            {i.discountPercent !== undefined
-              ? `استثناء الصنف: ${i.discountPercent}٪`
-              : `افتراضي الإدارة: ${defaultDiscount}٪${defaultDiscount === 0 ? " (بدون خصم)" : ""}`}
-          </span>
-        </div>
-        <p className="text-xs text-slate-600 m-0">
-          {i.discountPercent !== undefined ? (
-            <>اعتمدت إدارة السلسلة استثناءً خاصاً لهذا الصنف بنسبة خصم <strong>{i.discountPercent}٪</strong> بدلاً من النسبة الافتراضية للفرع ({defaultDiscount}٪).</>
-          ) : (
-            <>يتبع هذا الصنف نسبة الخصم الافتراضية المعتمدة لفرعكم من قِبل الإدارة المركزية للسلسلة وهي <strong>{defaultDiscount}٪</strong>{defaultDiscount === 0 ? " (السعر المرجعي كاملاً)" : ""}.</>
-          )}
-        </p>
-      </div>
-    );
-  }
+  const isIndependent = actor.role === "independent";
 
   return (
-    <Form
-      onSubmit={async (f) => {
-        const raw = f.get("discount");
-        const discount =
-          raw === "" || raw === null || raw === undefined
-            ? undefined
-            : Number(raw);
-        await run({
-          type: "setItemDiscount",
-          itemId: i.id,
-          discount,
-        });
-      }}
-    >
-      <div className="flex items-center gap-2 mb-1">
-        <Percent size={16} className="text-teal-600" />
-        <h3 className="m-0">استثناء نسبة الخصم للصنف</h3>
+    <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-right mb-4">
+      <div className="flex items-center justify-between gap-2 mb-2">
+        <div className="flex items-center gap-2">
+          <Percent size={16} className="text-teal-600" />
+          <h3 className="m-0 text-sm font-bold text-slate-800">
+            سياسة خصم الصنف في البورصة
+          </h3>
+        </div>
+        <span className="bg-teal-50 text-teal-700 font-bold px-2 py-0.5 rounded text-xs border border-teal-200">
+          {isIndependent
+            ? `خصم الصيدلية المعتمد: ${defaultDiscount}٪${defaultDiscount === 0 ? " (بدون خصم)" : ""}`
+            : i.discountPercent !== undefined
+              ? `استثناء الصنف: ${i.discountPercent}٪`
+              : `افتراضي الإدارة: ${defaultDiscount}٪${defaultDiscount === 0 ? " (بدون خصم)" : ""}`}
+        </span>
       </div>
-      <p className="text-xs text-slate-500 mb-2">
-        حدد نسبة خصم مخصصة لهذا الصنف عند طرحه في البورصة؛ اتركه فارغاً ليعتمد تلقائياً على النسبة الافتراضية المحددة في إعدادات الصيدلية ({defaultDiscount}٪).
-      </p>
-      <Field
-        name="discount"
-        label={`نسبة الخصم الخاصة بالصنف (٪)؛ الافتراضي ${defaultDiscount}٪${defaultDiscount === 0 ? " (بدون خصم)" : ""}`}
-        type="number"
-        min={0}
-        max={99}
-        required={false}
-        defaultValue={i.discountPercent ?? ""}
-      />
-      <div className="flex items-center gap-2">
-        <Button disabled={busy} type="submit">
-          حفظ نسبة خصم الصنف
-        </Button>
-        {i.discountPercent !== undefined && (
-          <Button
-            type="button"
-            variant="secondary"
-            disabled={busy}
-            onClick={() =>
-              run({
-                type: "setItemDiscount",
-                itemId: i.id,
-                discount: undefined,
-              })
-            }
-          >
-            إلغاء الاستثناء والعودة للافتراضي ({defaultDiscount}٪)
-          </Button>
+      <p className="text-xs text-slate-600 m-0 leading-relaxed">
+        {isIndependent ? (
+          <>
+            يتبع هذا الصنف نسبة الخصم العامة المعتمدة في إعدادات صيدليتكم (<strong>{defaultDiscount}٪</strong>{defaultDiscount === 0 ? " - السعر المرجعي كاملاً" : ""}) وتُطبق تلقائياً عند طرحه في البورصة دون حاجة لتحديد خصم لكل بند على حدة.
+          </>
+        ) : i.discountPercent !== undefined ? (
+          <>اعتمدت إدارة السلسلة استثناءً خاصاً لهذا الصنف بنسبة خصم <strong>{i.discountPercent}٪</strong> بدلاً من النسبة الافتراضية للفرع ({defaultDiscount}٪).</>
+        ) : (
+          <>يتبع هذا الصنف نسبة الخصم الافتراضية المعتمدة لفرعكم من قِبل الإدارة المركزية للسلسلة وهي <strong>{defaultDiscount}٪</strong>{defaultDiscount === 0 ? " (السعر المرجعي كاملاً)" : ""}.</>
         )}
-      </div>
-    </Form>
+      </p>
+      {isIndependent && (
+        <div className="pt-2 mt-2 border-t border-slate-200 flex justify-end">
+          <a
+            href="#settings"
+            className="text-teal-700 hover:text-teal-900 font-bold text-[11px] inline-flex items-center gap-1"
+          >
+            تعديل نسبة الخصم العامة للصيدلية من الإعدادات ←
+          </a>
+        </div>
+      )}
+    </div>
   );
 }
 export function Checkout({

@@ -1,4 +1,4 @@
-import type { Account, State, Item, Transfer } from "./types";
+import type { Account, State, Item, Transfer, PharmacySubscription } from "./types";
 export const roleNames = {
   guest: "زائر عام",
   pending: "حساب قيد المراجعة",
@@ -7,16 +7,82 @@ export const roleNames = {
   independent: "صيدلية مستقلة",
   admin: "مدير المنصة",
 };
-export function daysLeft(expiry: string) {
+export function parseDateSafe(dateStr: string | undefined | null): Date | null {
+  if (!dateStr || typeof dateStr !== "string") return null;
+  const s = dateStr.trim();
+  if (!s) return null;
+
+  // 1. If it already contains 'T', parse directly with new Date(s)
+  if (s.includes("T")) {
+    const d = new Date(s);
+    if (!Number.isNaN(d.getTime())) return d;
+  }
+
+  // 2. Format YYYY-MM-DD or YYYY/MM/DD
+  const ymdMatch = s.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+  if (ymdMatch) {
+    const [, y, m, d] = ymdMatch;
+    const date = new Date(Number(y), Number(m) - 1, Number(d));
+    if (!Number.isNaN(date.getTime())) return date;
+  }
+
+  // 3. Format DD-MM-YYYY or DD/MM/YYYY
+  const dmyMatch = s.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
+  if (dmyMatch) {
+    const [, d, m, y] = dmyMatch;
+    const date = new Date(Number(y), Number(m) - 1, Number(d));
+    if (!Number.isNaN(date.getTime())) return date;
+  }
+
+  // 4. Fallback direct parse
+  const fallback = new Date(s);
+  return Number.isNaN(fallback.getTime()) ? null : fallback;
+}
+
+export function daysLeft(expiry: string | undefined | null): number {
+  const targetDate = parseDateSafe(expiry);
+  if (!targetDate) return -1;
+
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  return Math.floor(
-    (new Date(expiry + "T00:00:00").getTime() - today.getTime()) / 86400000,
-  );
+
+  targetDate.setHours(0, 0, 0, 0);
+  const diff = Math.floor((targetDate.getTime() - today.getTime()) / 86400000);
+  return Number.isNaN(diff) ? -1 : diff;
 }
 export function isLicenseExpired(a: Account): boolean {
   if (!a.licenseExpiry) return false;
   return daysLeft(a.licenseExpiry) < 0;
+}
+export function getEffectiveSubscription(
+  s: State,
+  a: Account,
+): PharmacySubscription | undefined {
+  if (a.role === "admin" || a.role === "guest") return undefined;
+  if (!s.subscriptions || s.subscriptions.length === 0) return undefined;
+
+  // For pharmacy chains (Chain Management or Branch Staff)
+  if (a.role === "agency_master" || a.role === "agency_branch") {
+    const chainId = a.chainId;
+    if (!chainId) return undefined;
+    // Find all branches belonging to this chain
+    const chainBranchIds = s.branches
+      .filter((b) => b.chainId === chainId)
+      .map((b) => b.id);
+
+    return s.subscriptions.find(
+      (sub) =>
+        sub.chainId === chainId ||
+        (sub.branchId && chainBranchIds.includes(sub.branchId)),
+    );
+  }
+
+  // For independent pharmacies
+  if (a.role === "independent" && a.branchId) {
+    return s.subscriptions.find((sub) => sub.branchId === a.branchId);
+  }
+
+  return undefined;
 }
 export function isAccountSuspended(a: Account): boolean {
   return !!a.suspended || isLicenseExpired(a);
@@ -85,8 +151,18 @@ export function canNav(a: Account, key: string) {
   if (key === "settings") return member(a) || a.role === "admin";
   if (a.role === "guest" || a.role === "pending") return false;
   if (a.role === "admin")
-    return ["verification", "audit", "disputes", "reports", "settings"].includes(key);
+    return [
+      "verification",
+      "audit",
+      "disputes",
+      "reports",
+      "settings",
+      "subscriptions",
+    ].includes(key);
   if (!member(a)) return false;
+  if (key === "subscriptions") {
+    return ["independent", "agency_master"].includes(a.role);
+  }
   if (
     [
       "dashboard",
@@ -207,4 +283,45 @@ export function querySisterBranchesAvailability(
   }
 
   return results;
+}
+
+export function calculateDeadlineFromExpiry(expiry: string, returnWindowDays: number): string {
+  try {
+    const d = new Date(expiry + "T00:00:00");
+    if (isNaN(d.getTime())) return "";
+    d.setDate(d.getDate() - returnWindowDays);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  } catch {
+    return "";
+  }
+}
+
+export function getEffectiveReturnDeadline(i: Item, s: State): string | undefined {
+  const b = s.branches.find((b) => b.id === i.branchId);
+  if (b?.returnWindowDays && i.expiry) {
+    const calc = calculateDeadlineFromExpiry(i.expiry, b.returnWindowDays);
+    if (calc) return calc;
+  }
+  if (i.returnDeadline) return i.returnDeadline;
+  return undefined;
+}
+
+export function getEffectiveSupplier(i: Item, s: State): string {
+  const b = s.branches.find((b) => b.id === i.branchId);
+  if (b?.supplierName && b.supplierName.trim()) {
+    return b.supplierName.trim();
+  }
+  if (b?.chainId) {
+    return "شركة اليمامة للأدوية";
+  }
+  return "شركة الرعاية الحديثة للأدوية";
+}
+
+export function getEffectiveAlertDays(i: Item, s: State): number {
+  if (i.alertDays !== undefined) return i.alertDays;
+  const b = s.branches.find((b) => b.id === i.branchId);
+  return b?.alertDays ?? 10;
 }

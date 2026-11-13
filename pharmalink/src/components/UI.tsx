@@ -263,9 +263,14 @@ export function Field({
   );
 }
 export const money = (n: number) =>
-  new Intl.NumberFormat("ar-YE", { maximumFractionDigits: 2 }).format(n) +
-  " ر.ي";
-export const number = (n: number) => new Intl.NumberFormat("ar-YE").format(n);
+  new Intl.NumberFormat("ar-YE", {
+    numberingSystem: "latn",
+    maximumFractionDigits: 2,
+  }).format(Number.isFinite(n) ? n : 0) + " ر.ي";
+export const number = (n: number) =>
+  new Intl.NumberFormat("ar-YE", { numberingSystem: "latn" }).format(
+    Number.isFinite(n) ? n : 0,
+  );
 export const statusNames: Record<string, string> = {
   pending: "بانتظار الموافقات",
   management: "بانتظار الإدارة",

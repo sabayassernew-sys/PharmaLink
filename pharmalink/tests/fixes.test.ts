@@ -1,7 +1,7 @@
 import { it, expect } from "vitest";
 import { createSeed } from "../src/data/seed";
 import { transact } from "../src/domain/engine";
-import { canNav } from "../src/domain/access";
+import { canNav, daysLeft } from "../src/domain/access";
 import { exportScope, parseBackup } from "../src/domain/backups";
 import { radarMatches } from "../src/domain/offers";
 function setup() {
@@ -296,4 +296,34 @@ it("الناقص الخارجي لا يستلم ولا يدفع قبل اعتم�
   });
   expect(s.orders[0].status).toBe("completed");
   expect(s.feeBalance).toBeGreaterThanOrEqual(0);
+});
+
+it("يحسب daysLeft بدقة للاشتراكات وتنسيقات ISO المختلفة دون أي NaN", () => {
+  // ISO string with T and Z
+  const isoFuture = "2027-11-11T22:33:07.000Z";
+  const dIso = daysLeft(isoFuture);
+  expect(Number.isNaN(dIso)).toBe(false);
+  expect(dIso).toBeGreaterThan(300);
+
+  // Standard YYYY-MM-DD
+  const ymdFuture = "2027-11-11";
+  const dYmd = daysLeft(ymdFuture);
+  expect(Number.isNaN(dYmd)).toBe(false);
+  expect(dYmd).toBeGreaterThan(300);
+
+  // DD-MM-YYYY format
+  const dmyFuture = "11-11-2027";
+  const dDmy = daysLeft(dmyFuture);
+  expect(Number.isNaN(dDmy)).toBe(false);
+  expect(dDmy).toBeGreaterThan(300);
+
+  // Expired past date
+  const past = "2020-01-01T00:00:00.000Z";
+  const dPast = daysLeft(past);
+  expect(Number.isNaN(dPast)).toBe(false);
+  expect(dPast).toBeLessThan(0);
+
+  // Empty or invalid string
+  expect(daysLeft("")).toBe(-1);
+  expect(daysLeft("invalid-date")).toBe(-1);
 });

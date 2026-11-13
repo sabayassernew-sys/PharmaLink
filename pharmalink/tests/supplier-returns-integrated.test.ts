@@ -5,8 +5,10 @@ import {
   canNav,
   visibleItems,
   daysLeft,
-  member,
   isAccountSuspended,
+  getEffectiveReturnDeadline,
+  getEffectiveSupplier,
+  getEffectiveAlertDays,
 } from "../src/domain/access";
 import { supplierAlerts } from "../src/domain/notifications";
 import type { State, Item, Account } from "../src/domain/types";
@@ -28,11 +30,10 @@ function dateOffset(days: number): string {
  */
 function classifySupplierItem(i: Item, s: State): "closed" | "expired" | "today" | "due" | "later" {
   if (i.returnStatus && i.returnStatus !== "open") return "closed";
-  const d = daysLeft(i.returnDeadline!);
-  const alertWindow =
-    i.alertDays ??
-    s.branches.find((b) => b.id === i.branchId)?.alertDays ??
-    10;
+  const deadline = getEffectiveReturnDeadline(i, s);
+  if (!deadline) return "later";
+  const d = daysLeft(deadline);
+  const alertWindow = getEffectiveAlertDays(i, s);
   return d < 0
     ? "expired"
     : d === 0
@@ -697,3 +698,137 @@ describe("7. سيناريو دورة الحياة المتكاملة لمرتج�
     expect(lastEvent!.branchId).toBe(a.branchId);
   });
 });
+
+describe("8. حوكمة سياسة مورد الفرع والحساب الآلي والتسوية الفورية (Branch Policy & Auto Calculation)", () => {
+  it("تحدد إدارة السلسلة سياسة المورد المعتمد للفرع وشرط الإرجاع مع تسجيل الحدث في سجل التدقيق", () => {
+    let s = createSeed();
+    const master = s.accounts.find((a) => a.id === "master")!;
+    const haddaBranchId = "pharm_agency_01";
+    const initialEvents = s.events.length;
+
+    s = transact(s, master.id, {
+      type: "setBranchSupplierPolicy",
+      branchId: haddaBranchId,
+      supplierName: "شركة اليمامة للأدوية",
+      returnWindowDays: 90,
+      alertDays: 15,
+    });
+
+    const branch = s.branches.find((b) => b.id === haddaBranchId)!;
+    expect(branch.supplierName).toBe("شركة اليمامة للأدوية");
+    expect(branch.returnWindowDays).toBe(90);
+    expect(branch.alertDays).toBe(15);
+
+    expect(s.events.length).toBe(initialEvents + 1);
+    const lastEvent = s.events.at(-1)!;
+    expect(lastEvent.action).toBe("تحديث سياسة مورد الفرع");
+    expect(lastEvent.detail).toContain("شركة اليمامة للأدوية");
+    expect(lastEvent.detail).toContain("90");
+  });
+
+  it("يحسب النظام تلقائياً مهلة الإرجاع لكل دواء من تاريخ الصلاحية دون الحاجة لإدخال يدوي للصنف", () => {
+    let s = createSeed();
+    const hadda = s.accounts.find((a) => a.id === "branch-hadda")!;
+    const branch = s.branches.find((b) => b.id === hadda.branchId)!;
+
+    // ضبط سياسة مورد الفرع: قبل 60 يوماً من الصلاحية
+    branch.supplierName = "شركة تهامة للأدوية";
+    branch.returnWindowDays = 60;
+    branch.alertDays = 15;
+
+    // صنف جديد ليس له مهلة إرجاع يدوية، تاريخ صلاحيته بعد 65 يوماً من اليوم
+    const targetItem = s.items.find((i) => i.branchId === hadda.branchId && !i.returnDeadline)!;
+    const expiryDate = dateOffset(65);
+    targetItem.expiry = expiryDate;
+    targetItem.returnDeadline = undefined; // بدون مهلة يدوية
+
+    // المهلة المحسوبة آلياً: 65 يوماً - 60 يوماً = بعد 5 أيام من اليوم
+    const effectiveDeadline = getEffectiveReturnDeadline(targetItem, s);
+    expect(effectiveDeadline).toBeDefined();
+    expect(effectiveDeadline).toBe(dateOffset(5));
+
+    // وبما أن المتبقي (5 أيام) يقع ضمن نافذة التنبيه (15 يوماً)، فإن التنبيه يظهر تلقائياً!
+    const notices = supplierAlerts(s, hadda);
+    const itemNotice = notices.find((n) => n.item.id === targetItem.id);
+    expect(itemNotice).toBeDefined();
+    expect(itemNotice!.text).toContain("تقترب");
+    expect(itemNotice!.days).toBe(5);
+  });
+
+  it("يرث الدواء اسم المورد المعتمد للفرع مركزياً من الإدارة وتكون له الأولوية على المسميات اليدوية", () => {
+    const s = createSeed();
+    const hadda = s.accounts.find((a) => a.id === "branch-hadda")!;
+    const branch = s.branches.find((b) => b.id === hadda.branchId)!;
+    branch.supplierName = "شركة باجرش الدوائية";
+
+    const item = s.items.find((i) => i.branchId === hadda.branchId)!;
+    item.supplier = "علي القديم";
+
+    // يعتمد اسم المورد المركزي المعتمد من الإدارة بدلاً من المسمى اليدوي
+    expect(getEffectiveSupplier(item, s)).toBe("شركة باجرش الدوائية");
+  });
+
+  it("يدعم تأكيد استلام المندوب مع تسوية الخروج الفورية للمخزون بضغطة زر واحدة موثقة", () => {
+    let s = createSeed();
+    const hadda = s.accounts.find((a) => a.id === "branch-hadda")!;
+    const item = s.items.find((i) => i.branchId === hadda.branchId && i.quantity > 5)!;
+    const initialQty = item.quantity;
+    const initialEvents = s.events.length;
+
+    // تأكيد الإرجاع مع تسوية الخروج (settleQuantity: true)
+    s = transact(s, hadda.id, {
+      type: "setDeadline",
+      itemId: item.id,
+      supplier: "شركة اليمامة للأدوية",
+      date: dateOffset(0),
+      status: "returned",
+      settleQuantity: true,
+    });
+
+    const updated = s.items.find((x) => x.id === item.id)!;
+    expect(updated.returnStatus).toBe("returned");
+    expect(updated.quantity).toBe(0); // تم خصم وتصفير الرصيد المرتجع
+
+    // التحقق من توثيق حدث تسوية المخزون في سجل التدقيق
+    expect(s.events.length).toBe(initialEvents + 2);
+    const settleEvent = s.events.find(
+      (e) => e.reference === item.id && e.action === "تسوية مخزون",
+    );
+    expect(settleEvent).toBeDefined();
+    expect(settleEvent!.detail).toContain(`${initialQty} ← 0`);
+    expect(settleEvent!.detail).toContain("تسوية خروج مرتجع مورد معتمد");
+  });
+
+  it("يحظر على مسؤول فرع السلسلة (agency_branch) تعديل سياسة مورد الفرع أو المهل المركزية", () => {
+    const s = createSeed();
+    const hadda = s.accounts.find((a) => a.id === "branch-hadda")!;
+
+    expect(() =>
+      transact(s, hadda.id, {
+        type: "setBranchSupplierPolicy",
+        branchId: hadda.branchId!,
+        supplierName: "محاولة تعديل غير مصرح",
+        returnWindowDays: 45,
+      }),
+    ).toThrow(/صلاحية إدارة السلسلة أو الصيدلية المستقلة/);
+  });
+
+  it("يسمح للصيدلية المستقلة (independent) وإدارة السلسلة (agency_master) بتحديد سياسة المورد", () => {
+    let s = createSeed();
+    const indep = s.accounts.find((a) => a.id === "independent")!;
+
+    s = transact(s, indep.id, {
+      type: "setBranchSupplierPolicy",
+      branchId: indep.branchId!,
+      supplierName: "شركة الرعاية الحديثة",
+      returnWindowDays: 75,
+      alertDays: 12,
+    });
+
+    const indepBranch = s.branches.find((b) => b.id === indep.branchId)!;
+    expect(indepBranch.supplierName).toBe("شركة الرعاية الحديثة");
+    expect(indepBranch.returnWindowDays).toBe(75);
+    expect(indepBranch.alertDays).toBe(12);
+  });
+});
+

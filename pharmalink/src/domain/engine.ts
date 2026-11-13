@@ -1,7 +1,62 @@
 import { committed, editableOffer } from "./offers";
 import { importKey, importBlocked } from "./imports";
-import type { State, Account, Line, Receipt, ImportRow, KYCDocument } from "./types";
+import type { State, Account, Line, Receipt, ImportRow, KYCDocument, SubscriptionPlan } from "./types";
 import { available, ownsBranch, member, eligible, eligibilityReasons } from "./access";
+
+const DEFAULT_SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
+  {
+    id: "plan_basic",
+    name: "الباقة الأساسية",
+    badge: "للانطلاق والتجربة",
+    description: "حل مثالي للصيدليات الفردية والمستقلة الصغيرة لتصريف الفائض المحلي ومتابعة الصلاحيات.",
+    monthlyFee: 10000,
+    annualFee: 100000,
+    features: [
+      "عرض حتى 50 صنفاً دوائياً في البورصة",
+      "تنبيهات الصلاحيات الأساسية للمخزون",
+      "إدارة المخزون المحلي وسجل المعاملات",
+    ],
+    maxRadarItems: 5,
+    unlimitedMarket: true,
+    prioritySupport: false,
+    targetType: "independent",
+  },
+  {
+    id: "plan_pro",
+    name: "الباقة الاحترافية المتقدمة",
+    badge: "⭐ الأكثر طلباً وموصى بها",
+    highlighted: true,
+    description: "الخيار الأقوى للصيدليات النشطة وتجار التجزئة الراغبين في حركة بيع وشراء يومية متسارعة.",
+    monthlyFee: 20000,
+    annualFee: 200000,
+    features: [
+      "أصناف غير محدودة في البورصة",
+      "رادار الأدوية الشامل والنواقص اللحظية",
+      "تنبيهات الصلاحية المبكرة والمهل الذكية",
+    ],
+    maxRadarItems: 50,
+    unlimitedMarket: true,
+    prioritySupport: true,
+    targetType: "independent",
+  },
+  {
+    id: "plan_chains",
+    name: "باقة سلاسل الصيدليات الكبرى",
+    badge: "للمجموعات والشركات",
+    description: "بنية تحتية رقمية متكاملة لإدارة سلاسل الصيدليات والفروع والمستودعات المركزية.",
+    monthlyFee: 45000,
+    annualFee: 450000,
+    features: [
+      "ربط فروع غير محدود تحت إدارة موحدة",
+      "المناقلات الداخلية الفورية بين الفروع",
+      "تقارير محاسبية ومخزنية موحدة للسلسلة",
+    ],
+    maxRadarItems: 999,
+    unlimitedMarket: true,
+    prioritySupport: true,
+    targetType: "agency",
+  },
+];
 export type Command =
   | { type: "addItem"; branchId: string; row: ImportRow }
   | { type: "setBlock"; itemId: string; blocked: boolean; reason: string }
@@ -9,10 +64,18 @@ export type Command =
   | {
       type: "setDeadline";
       itemId: string;
-      supplier: string;
-      date: string;
+      supplier?: string;
+      date?: string;
       days?: number;
-      status?: "open" | "returned" | "refused" | "not_returnable";
+      status?: "open" | "closed" | "returned" | "refused" | "not_returnable";
+      settleQuantity?: boolean;
+    }
+  | {
+      type: "setBranchSupplierPolicy";
+      branchId: string;
+      supplierName: string;
+      returnWindowDays: number;
+      alertDays?: number;
     }
   | { type: "alertDefault"; branchId: string; days: number }
   | { type: "discountDefault"; branchId: string; discount: number }
@@ -85,8 +148,13 @@ export type Command =
   | { type: "withdrawSale" | "rejectSale"; id: string }
   | { type: "buy"; saleId: string; branchId: string; quantity: number }
   | {
-      type: "approveOrder" | "sendOrder" | "receiveOrder" | "cancelOrder";
+      type: "approveOrder" | "sendOrder" | "receiveOrder";
       id: string;
+    }
+  | {
+      type: "cancelOrder";
+      id: string;
+      reason?: string;
     }
   | {
       type: "disputeOrder";
@@ -120,6 +188,11 @@ export type Command =
       taxNumber?: string;
       licenseExpiry?: string;
       documents?: KYCDocument[];
+      phone?: string;
+      city?: string;
+      address?: string;
+      facilityType?: "independent" | "agency_branch" | "agency_master";
+      chainId?: string;
     }
   | {
       type: "identify";
@@ -180,11 +253,45 @@ export type Command =
       taxNumber?: string;
       licenseExpiry?: string;
       documents?: KYCDocument[];
+      phone?: string;
+      city?: string;
+      address?: string;
+      facilityType?: "independent" | "agency_branch" | "agency_master";
+      chainId?: string;
     }
   | {
       type: "setPlatformSettings";
       feePercent?: number;
       minExpiryDays?: number;
+      nearExpiryAlertDays?: number;
+    }
+  | {
+      type: "updateSubscriptionPlan";
+      planId: string;
+      monthlyFee: number;
+      annualFee: number;
+      name?: string;
+    }
+  | {
+      type: "assignSubscription";
+      branchId: string;
+      planId: string;
+      billingCycle: "monthly" | "annual";
+      paymentMethod: "wallet" | "bank_transfer" | "cash" | "free_trial";
+      reference?: string;
+      notes?: string;
+    }
+  | {
+      type: "renewSubscription";
+      subscriptionId: string;
+      paymentMethod?: "wallet" | "bank_transfer" | "cash";
+      reference?: string;
+    }
+  | {
+      type: "setSubscriptionStatus";
+      subscriptionId: string;
+      status: "active" | "trial" | "grace_period" | "expired";
+      notes?: string;
     };
 function check(ok: unknown, message: string): asserts ok {
   if (!ok) throw new Error(message);
@@ -423,6 +530,11 @@ export function transact(
         license: command.license,
         pharmacistName: command.pharmacistName,
         practiceLicense: command.practiceLicense,
+        phone: command.phone,
+        city: command.city,
+        address: command.address,
+        facilityType: command.facilityType || actor.facilityType || "independent",
+        chainId: command.chainId !== undefined ? command.chainId : actor.chainId,
         commercialRegister: command.commercialRegister,
         taxNumber: command.taxNumber,
         licenseExpiry: command.licenseExpiry,
@@ -448,6 +560,11 @@ export function transact(
         license: command.license,
         pharmacistName: command.pharmacistName?.trim(),
         practiceLicense: command.practiceLicense?.trim(),
+        phone: command.phone?.trim(),
+        city: command.city?.trim() || "صنعاء",
+        address: command.address?.trim(),
+        facilityType: command.facilityType || "independent",
+        chainId: command.chainId,
         commercialRegister: command.commercialRegister?.trim(),
         taxNumber: command.taxNumber?.trim(),
         licenseExpiry: command.licenseExpiry,
@@ -456,7 +573,7 @@ export function transact(
         verified: false,
       };
       s.accounts.push(a);
-      log("طلب تسجيل", a.id, "طلب منشأة مستقلة بانتظار المراجعة");
+      log("طلب تسجيل", a.id, `طلب تسجيل: ${a.name}`);
       break;
     }
     case "addItem":
@@ -515,6 +632,37 @@ export function transact(
         command.branchId,
         `${command.days} أيام`,
         command.branchId,
+      );
+      break;
+    }
+    case "setBranchSupplierPolicy": {
+      const b = s.branches.find((br) => br.id === command.branchId);
+      check(b, "الفرع غير موجود");
+      own(command.branchId);
+      check(
+        actor.role !== "agency_branch",
+        "تحديد وتعديل سياسة المورد من صلاحية إدارة السلسلة أو الصيدلية المستقلة فقط",
+      );
+      check(
+        command.supplierName && command.supplierName.trim().length > 0,
+        "أدخل اسم المورد المعتمد للفرع",
+      );
+      whole(command.returnWindowDays, false);
+      check(command.returnWindowDays <= 365, "شرط المهلة لا يتجاوز 365 يوماً");
+      if (command.alertDays !== undefined) {
+        whole(command.alertDays, true);
+        check(command.alertDays <= 365, "الحد 365 يومًا");
+      }
+      b.supplierName = command.supplierName.trim();
+      b.returnWindowDays = command.returnWindowDays;
+      if (command.alertDays !== undefined) {
+        b.alertDays = command.alertDays;
+      }
+      log(
+        "تحديث سياسة مورد الفرع",
+        b.id,
+        `${b.supplierName} (مهلة: قبل ${b.returnWindowDays} يوماً، تنبيه: ${b.alertDays ?? 10} أيام)`,
+        b.id,
       );
       break;
     }
@@ -734,24 +882,46 @@ export function transact(
     case "setDeadline": {
       const i = item(command.itemId);
       own(i.branchId);
-      check(
-        command.supplier.trim() &&
-          (command.status === "not_returnable" ||
-            (/^\d{4}-\d{2}-\d{2}$/.test(command.date) &&
-              !isNaN(new Date(command.date).getTime()) &&
-              new Date(command.date).toISOString().slice(0, 10) ===
-                command.date)),
-        "أدخل المورد وتاريخ المهلة",
-      );
-      i.supplier = command.supplier;
-      i.returnDeadline = command.date;
-      i.alertDays = command.days;
-      i.returnStatus = command.status || "open";
-      if (command.days !== undefined) {
-        whole(command.days, true);
-        check(command.days <= 365, "الحد 365 يومًا");
+      if (command.status) {
+        i.returnStatus = command.status;
       }
-      log("تحديث مهلة المورد", i.id, command.date, i.branchId);
+      if (command.supplier !== undefined || command.date !== undefined) {
+        check(
+          command.supplier &&
+            command.supplier.trim() &&
+            (command.status === "not_returnable" ||
+              (/^\d{4}-\d{2}-\d{2}$/.test(command.date || "") &&
+                !isNaN(new Date(command.date!).getTime()) &&
+                new Date(command.date!).toISOString().slice(0, 10) ===
+                  command.date)),
+          "أدخل المورد وتاريخ المهلة",
+        );
+        i.supplier = command.supplier.trim();
+        i.returnDeadline = command.date;
+        i.alertDays = command.days;
+        if (command.days !== undefined) {
+          whole(command.days, true);
+          check(command.days <= 365, "الحد 365 يومًا");
+        }
+        log("تحديث مهلة المورد", i.id, command.date || "", i.branchId);
+      } else {
+        log(
+          "تحديث مهلة المورد",
+          i.id,
+          `حالة المتابعة: ${i.returnStatus === "closed" ? "مغلقة (تم التصريف)" : i.returnStatus === "returned" ? "تم الإرجاع" : i.returnStatus === "refused" ? "تم الاستبعاد" : i.returnStatus === "not_returnable" ? "غير قابل للإرجاع" : "مفتوحة"}`,
+          i.branchId,
+        );
+      }
+      if (command.settleQuantity && (i.returnStatus === "returned") && i.quantity > 0) {
+        const beforeQty = i.quantity;
+        i.quantity = 0;
+        log(
+          "تسوية مخزون",
+          i.id,
+          `${beforeQty} ← 0؛ تسوية خروج مرتجع مورد معتمد: ${command.supplier || i.supplier || "المورد المعتمد"}`,
+          i.branchId,
+        );
+      }
       break;
     }
     case "archive": {
@@ -1286,8 +1456,10 @@ export function transact(
     }
     case "cancelOrder": {
       const o = order(command.id);
+      const isBuyer = ownsBranch(s, actor, o.buyer);
+      const isSeller = ownsBranch(s, actor, o.seller);
       check(
-        ownsBranch(s, actor, o.buyer) || ownsBranch(s, actor, o.seller),
+        isBuyer || isSeller,
         "إلغاء الطلب لأحد طرفيه فقط",
       );
       check(
@@ -1301,7 +1473,16 @@ export function transact(
         w.available += o.amount + o.fee;
       }
       o.status = "cancelled";
-      log("إلغاء شراء", o.id, "فك الحجز إن وجد", o.buyer);
+      o.cancelledBy = isBuyer ? "buyer" : "seller";
+      o.cancelReason =
+        command.reason?.trim() ||
+        (isBuyer ? "تراجع المشتري عن الطلب" : "اعتذار البائع عن تلبية الطلب");
+      log(
+        "إلغاء شراء",
+        o.id,
+        `${isBuyer ? "من قِبل المشتري" : "من قِبل البائع"}؛ ${o.cancelReason}`,
+        isBuyer ? o.buyer : o.seller,
+      );
       break;
     }
     case "externalResolve": {
@@ -1474,13 +1655,34 @@ export function transact(
         a.rejection = undefined;
         if (command.licenseExpiry) a.licenseExpiry = command.licenseExpiry;
       } else if (command.approve) {
-        const id = uid("branch");
-        s.branches.push({ id, name: a.name, city: "غير محدد", active: true });
-        s.wallets.push({ branchId: id, available: 0, held: 0 });
-        a.branchId = id;
-        a.role = "independent";
-        a.verified = true;
-        a.rejection = undefined;
+        if (a.facilityType === "agency_master") {
+          const chainId = uid("chain");
+          s.chains.push({
+            id: chainId,
+            name: a.name,
+            policy: "centralized",
+          });
+          a.chainId = chainId;
+          a.role = "agency_master";
+          a.verified = true;
+          a.rejection = undefined;
+        } else if (a.facilityType === "agency_branch" && a.chainId) {
+          const id = uid("branch");
+          s.branches.push({ id, name: a.name, city: a.city || "صنعاء", chainId: a.chainId, active: true });
+          s.wallets.push({ branchId: id, available: 0, held: 0 });
+          a.branchId = id;
+          a.role = "agency_branch";
+          a.verified = true;
+          a.rejection = undefined;
+        } else {
+          const id = uid("branch");
+          s.branches.push({ id, name: a.name, city: a.city || "صنعاء", active: true });
+          s.wallets.push({ branchId: id, available: 0, held: 0 });
+          a.branchId = id;
+          a.role = "independent";
+          a.verified = true;
+          a.rejection = undefined;
+        }
         if (command.licenseExpiry) a.licenseExpiry = command.licenseExpiry;
       } else {
         a.rejection = command.reason || "لم يعتمد طلب التوثيق؛ يرجى مراجعة إدارة المنصة";
@@ -1736,11 +1938,201 @@ export function transact(
         );
         s.minExpiryDays = command.minExpiryDays;
       }
+      if (command.nearExpiryAlertDays !== undefined) {
+        check(
+          Number.isFinite(command.nearExpiryAlertDays) &&
+            command.nearExpiryAlertDays >= 1 &&
+            command.nearExpiryAlertDays <= 365,
+          "نافذة الإنذار المبكر يجب أن تكون بين 1 و 365 يوماً",
+        );
+        s.nearExpiryAlertDays = command.nearExpiryAlertDays;
+      }
       log(
         "تعديل سياسات المنصة",
         actor.id,
-        `العمولة: ${s.platformFeePercent ?? 1.5}٪، أدنى صلاحية: ${s.minExpiryDays ?? 30} يوم`,
+        `العمولة: ${s.platformFeePercent ?? 1.5}٪، أدنى صلاحية: ${s.minExpiryDays ?? 30} يوم، إنذار المخزون: ${s.nearExpiryAlertDays ?? 90} يوم`,
       );
+      break;
+    }
+    case "updateSubscriptionPlan": {
+      check(actor.role === "admin", "تعديل الباقات متاح لإدارة المنصة فقط");
+      s.subscriptionPlans ??= [];
+      const plan = s.subscriptionPlans.find((p) => p.id === command.planId);
+      check(plan, "الباقة غير موجودة");
+      check(
+        Number.isFinite(command.monthlyFee) && command.monthlyFee >= 0,
+        "الرسوم الشهرية يجب أن تكون عدداً موجباً",
+      );
+      check(
+        Number.isFinite(command.annualFee) && command.annualFee >= 0,
+        "الرسوم السنوية يجب أن تكون عدداً موجباً",
+      );
+      plan.monthlyFee = command.monthlyFee;
+      plan.annualFee = command.annualFee;
+      if (command.name) plan.name = command.name;
+      log("تعديل باقة اشتراك", plan.id, `شهري: ${command.monthlyFee} ر.ي، سنوي: ${command.annualFee} ر.ي`);
+      break;
+    }
+    case "assignSubscription": {
+      check(
+        actor.role !== "agency_branch",
+        "إدارة وسداد باقات الاشتراكات محصورة بإدارة السلسلة المركزية أو الصيدلية المستقلة",
+      );
+      const isOwnerOrAdmin = actor.role === "admin" || ownsBranch(s, actor, command.branchId);
+      check(isOwnerOrAdmin, "غير مصرح بتعيين هذا الاشتراك");
+      s.subscriptions ??= [];
+      s.subscriptionInvoices ??= [];
+      if (!s.subscriptionPlans || s.subscriptionPlans.length === 0) {
+        s.subscriptionPlans = structuredClone(DEFAULT_SUBSCRIPTION_PLANS);
+      }
+
+      const plan = s.subscriptionPlans.find((p) => p.id === command.planId) || DEFAULT_SUBSCRIPTION_PLANS.find((p) => p.id === command.planId);
+      check(plan, "الباقة المختارة غير موجودة");
+
+      const isTrial = command.paymentMethod === "free_trial";
+      const fee = isTrial ? 0 : command.billingCycle === "annual" ? plan.annualFee : plan.monthlyFee;
+      const branch = s.branches.find((b) => b.id === command.branchId);
+      check(branch, "المنشأة غير موجودة");
+
+      const startDate = now();
+      const renewalDays = isTrial ? 14 : command.billingCycle === "annual" ? 365 : 30;
+      const renewalDate = new Date(Date.now() + renewalDays * 86400000).toISOString();
+
+      let sub = s.subscriptions.find((x) =>
+        (branch.chainId && x.chainId === branch.chainId) || x.branchId === command.branchId,
+      );
+      if (
+        actor.role !== "admin" &&
+        sub &&
+        (sub.status === "active" || sub.status === "trial") &&
+        sub.planId !== command.planId &&
+        new Date(sub.renewalDate).getTime() > Date.now()
+      ) {
+        check(false, "لا يمكن الاشتراك في باقة أخرى أثناء سريان اشتراكك الحالي. يمكنك التبديل عند موعد التجديد القادم.");
+      }
+      const subId = sub?.id || uid("sub");
+      if (sub) {
+        sub.planId = plan.id;
+        sub.billingCycle = command.billingCycle;
+        sub.status = isTrial ? "trial" : "active";
+        sub.amount = fee;
+        sub.startDate = startDate;
+        sub.renewalDate = renewalDate;
+        sub.paymentMethod = command.paymentMethod;
+        sub.reference = command.reference;
+        sub.notes = isTrial ? "فترة تجريبية مجانية 14 يوماً" : command.notes;
+        if (branch.chainId) sub.chainId = branch.chainId;
+      } else {
+        sub = {
+          id: subId,
+          branchId: command.branchId,
+          chainId: branch.chainId,
+          planId: plan.id,
+          billingCycle: command.billingCycle,
+          status: isTrial ? "trial" : "active",
+          amount: fee,
+          startDate,
+          renewalDate,
+          autoRenew: true,
+          paymentMethod: command.paymentMethod,
+          reference: command.reference,
+          notes: isTrial ? "فترة تجريبية مجانية 14 يوماً" : command.notes,
+        };
+        s.subscriptions.push(sub);
+      }
+
+      // Add Invoice
+      const invId = uid("inv_sub");
+      s.subscriptionInvoices.push({
+        id: invId,
+        subscriptionId: subId,
+        branchId: command.branchId,
+        chainId: branch.chainId,
+        planId: plan.id,
+        amount: fee,
+        billingCycle: command.billingCycle,
+        paidAt: now(),
+        periodStart: startDate,
+        periodEnd: renewalDate,
+        paymentMethod: isTrial ? "فترة تجريبية مجانية (14 يوماً)" : command.paymentMethod,
+        reference: command.reference || invId,
+        status: "paid",
+      });
+
+      log(
+        "تفعيل اشتراك",
+        subId,
+        `${branch.name} • ${plan.name} (${command.billingCycle === "annual" ? "سنوي" : "شهري"}: ${fee} ر.ي)`,
+        command.branchId,
+      );
+      break;
+    }
+    case "renewSubscription": {
+      s.subscriptions ??= [];
+      s.subscriptionPlans ??= [];
+      s.subscriptionInvoices ??= [];
+
+      const sub = s.subscriptions.find((x) => x.id === command.subscriptionId);
+      check(sub, "الاشتراك غير موجود");
+      const isOwnerOrAdmin =
+        actor.role === "admin" ||
+        (sub.chainId ? (actor.role === "agency_master" && actor.chainId === sub.chainId) : false) ||
+        (sub.branchId ? ownsBranch(s, actor, sub.branchId) : false);
+      check(isOwnerOrAdmin, "غير مصرح بتجديد هذا الاشتراك");
+
+      if (!s.subscriptionPlans || s.subscriptionPlans.length === 0) {
+        s.subscriptionPlans = structuredClone(DEFAULT_SUBSCRIPTION_PLANS);
+      }
+      const plan = s.subscriptionPlans.find((p) => p.id === sub.planId) || DEFAULT_SUBSCRIPTION_PLANS.find((p) => p.id === sub.planId);
+      check(plan, "باقة الاشتراك غير صالحة");
+
+      const fee = sub.billingCycle === "annual" ? plan.annualFee : plan.monthlyFee;
+      const currentRenewal = new Date(sub.renewalDate).getTime();
+      const baseTime = currentRenewal > Date.now() ? currentRenewal : Date.now();
+      const renewalDays = sub.billingCycle === "annual" ? 365 : 30;
+      const nextRenewal = new Date(baseTime + renewalDays * 86400000).toISOString();
+
+      sub.status = "active";
+      sub.renewalDate = nextRenewal;
+      if (command.paymentMethod) sub.paymentMethod = command.paymentMethod;
+      if (command.reference) sub.reference = command.reference;
+
+      const invId = uid("inv_sub");
+      s.subscriptionInvoices.push({
+        id: invId,
+        subscriptionId: sub.id,
+        branchId: sub.branchId,
+        chainId: sub.chainId,
+        planId: plan.id,
+        amount: fee,
+        billingCycle: sub.billingCycle,
+        paidAt: now(),
+        periodStart: new Date(baseTime).toISOString(),
+        periodEnd: nextRenewal,
+        paymentMethod: command.paymentMethod || sub.paymentMethod || "wallet",
+        reference: command.reference || invId,
+        status: "paid",
+      });
+
+      const branchName = sub.chainId
+        ? (s.chains.find((c) => c.id === sub.chainId)?.name || "سلسلة صيدليات")
+        : (sub.branchId ? (s.branches.find((b) => b.id === sub.branchId)?.name || sub.branchId) : "صيدلية");
+      log(
+        "تجديد اشتراك",
+        sub.id,
+        `${branchName} • تم التجديد حتى ${nextRenewal.slice(0, 10)} (${fee} ر.ي)`,
+        sub.branchId,
+      );
+      break;
+    }
+    case "setSubscriptionStatus": {
+      check(actor.role === "admin", "تعديل حالة الاشتراكات متاح للإدارة فقط");
+      s.subscriptions ??= [];
+      const sub = s.subscriptions.find((x) => x.id === command.subscriptionId);
+      check(sub, "الاشتراك غير موجود");
+      sub.status = command.status;
+      if (command.notes) sub.notes = command.notes;
+      log("تغيير حالة اشتراك", sub.id, `الحالة الجديدة: ${command.status}`);
       break;
     }
   }

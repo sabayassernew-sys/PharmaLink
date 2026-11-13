@@ -44,11 +44,12 @@ export function Dashboard({ navigate }: { navigate: (s: string) => void }) {
       (actor.branchId === t.to &&
         ((!t.receiverApproved && t.status === "pending") || t.status === "sent")),
   );
+  const nearDays = state.nearExpiryAlertDays ?? 90;
   const near = items.filter(
-      (i) => daysLeft(i.expiry) >= 0 && daysLeft(i.expiry) <= 90,
+      (i) => daysLeft(i.expiry) >= 0 && daysLeft(i.expiry) <= nearDays,
     ),
     expired = items.filter((i) => daysLeft(i.expiry) < 0),
-    healthy = items.filter((i) => daysLeft(i.expiry) > 90);
+    healthy = items.filter((i) => daysLeft(i.expiry) > nearDays);
   const stats = [
     {
       title: "بنود المخزون",
@@ -61,7 +62,7 @@ export function Dashboard({ navigate }: { navigate: (s: string) => void }) {
     {
       title: "قريبة الانتهاء",
       value: near.length,
-      note: "خلال 90 يومًا",
+      note: `خلال ${nearDays} يومًا`,
       icon: Clock3,
       color: "amber",
       page: "inventory",
@@ -276,11 +277,11 @@ export function Dashboard({ navigate }: { navigate: (s: string) => void }) {
             </div>
             <div className="legend">
               <span>
-                <i className="bg-teal-500" /> أكثر من 90 يومًا{" "}
+                <i className="bg-teal-500" /> أكثر من {nearDays} يومًا{" "}
                 <b>{healthy.length}</b>
               </span>
               <span>
-                <i className="bg-amber-400" /> خلال 90 يومًا{" "}
+                <i className="bg-amber-400" /> خلال {nearDays} يومًا{" "}
                 <b>{near.length}</b>
               </span>
               <span>

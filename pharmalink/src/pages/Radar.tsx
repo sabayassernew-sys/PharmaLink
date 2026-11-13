@@ -84,12 +84,71 @@ export function Radar() {
         .filter((r) => ownsBranch(state, actor, r.branchId))
         .map((r) => {
           const matches = radarMatches(state, actor, r.query, r);
+          const ownSales = state.sales.filter((x) => {
+            if (x.status !== "published") return false;
+            const item = state.items.find((i) => i.id === x.itemId);
+            if (!item) return false;
+            const isOwn =
+              item.branchId === actor.branchId ||
+              (actor.chainId &&
+                state.branches.find((b) => b.id === item.branchId)?.chainId ===
+                  actor.chainId);
+            if (!isOwn) return false;
+            const q = r.query.trim().toLowerCase();
+            return (
+              item.name.toLowerCase().includes(q) ||
+              (item.ingredient || "").toLowerCase().includes(q)
+            );
+          });
+          const filterExcludedSales =
+            !matches.length && !ownSales.length
+              ? state.sales.filter((x) => {
+                  if (x.status !== "published") return false;
+                  const item = state.items.find((i) => i.id === x.itemId);
+                  if (!item || item.branchId === actor.branchId) return false;
+                  const q = r.query.trim().toLowerCase();
+                  return (
+                    item.name.toLowerCase().includes(q) ||
+                    (item.ingredient || "").toLowerCase().includes(q)
+                  );
+                })
+              : [];
           return (
             <Card key={r.id} className="mt-5">
               <div className="section-title">
-                <h3>
-                  {r.query} — {matches.length} عرض قابل للطلب
-                </h3>
+                <div>
+                  <h3 className="text-base font-bold text-slate-800">
+                    {r.query} — {matches.length} عرض قابل للطلب
+                  </h3>
+                  {(r.dosageForm ||
+                    r.strength ||
+                    r.minDiscount !== undefined ||
+                    r.minExpiry !== undefined) && (
+                    <div className="flex flex-wrap items-center gap-1.5 mt-1 text-xs text-slate-500">
+                      <span className="text-slate-400">الفلاتر المطبقة:</span>
+                      {r.dosageForm && (
+                        <span className="bg-slate-100 border border-slate-200 px-2 py-0.5 rounded text-[11px] font-medium text-slate-700">
+                          الشكل: {r.dosageForm}
+                        </span>
+                      )}
+                      {r.strength && (
+                        <span className="bg-slate-100 border border-slate-200 px-2 py-0.5 rounded text-[11px] font-medium text-slate-700">
+                          التركيز: {r.strength}
+                        </span>
+                      )}
+                      {r.minDiscount !== undefined && (
+                        <span className="bg-slate-100 border border-slate-200 px-2 py-0.5 rounded text-[11px] font-medium text-slate-700">
+                          خصم أدنى: {r.minDiscount}٪
+                        </span>
+                      )}
+                      {r.minExpiry !== undefined && (
+                        <span className="bg-slate-100 border border-slate-200 px-2 py-0.5 rounded text-[11px] font-medium text-slate-700">
+                          صلاحية أدنى: {r.minExpiry} يوم
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
                 <Button
                   disabled={busy}
                   variant="ghost"
@@ -99,10 +158,44 @@ export function Radar() {
                 </Button>
               </div>
               {!matches.length ? (
-                <Empty
-                  title="لا توجد عروض مطابقة متاحة الآن"
-                  description="العروض الموقوفة والمنتهية وغير المتاحة لا تُعرض. لا توجد إشعارات خلفية."
-                />
+                <>
+                  <Empty
+                    title="لا توجد عروض مطابقة متاحة الآن"
+                    description="العروض الموقوفة والمنتهية وعروض صيدليتك لا تُعرض هنا."
+                  />
+                  {ownSales.length > 0 && (
+                    <div className="mt-3 p-3.5 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-950 flex items-start gap-2.5">
+                      <span className="text-lg leading-none">💡</span>
+                      <div>
+                        <p className="font-bold text-amber-900 mb-1">
+                          توضيح: يتوفر هذا الدواء مطروحاً في البورصة من صيدليتك الحالية!
+                        </p>
+                        <p className="text-amber-800 leading-relaxed">
+                          رادار الأدوية مصمم لمتابعة ونواقص الشراء من <strong>الصيدليات الأخرى</strong> فقط، ويستبعد عروض صيدليتك تلقائياً منعاً لشراء الصيدلية من نفسها.
+                        </p>
+                        <p className="text-amber-700 mt-1.5 font-medium">
+                          👉 لتجربة طلب الدواء عبر الرادار: بدّل الحساب من القائمة العلوية إلى صيدلية ثانية (مثل «صيدلية مستقلة ثانية - د. كمال») وستجد العرض متاحاً للشراء هناك فوراً.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                  {filterExcludedSales.length > 0 && (
+                    <div className="mt-3 p-3.5 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-950 flex items-start gap-2.5">
+                      <span className="text-lg leading-none">🔍</span>
+                      <div>
+                        <p className="font-bold text-blue-900 mb-1">
+                          تم العثور على عروض لهذا الدواء في البورصة ولكنها استُبعدت بسبب الشروط الاختيارية
+                        </p>
+                        <p className="text-blue-800 leading-relaxed">
+                          قد يكون تم استبعادها بسبب شرط الشكل الدوائي ({r.dosageForm || "—"}) أو الصلاحية ({r.minExpiry ? `${r.minExpiry} يوم` : "—"}).
+                        </p>
+                        <p className="text-blue-700 mt-1 font-medium">
+                          💡 يمكنك الضغط على «إلغاء المتابعة» بالأعلى وإعادة إضافة الدواء باسمه فقط بدون ملء الخانات الاختيارية.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </>
               ) : (
                 <div className="table-wrap">
                   <table>
@@ -129,6 +222,8 @@ export function Radar() {
                                   )?.name
                                 }{" "}
                                 · {i.ingredient}
+                                {i.strength && ` · ${i.strength}`}
+                                {i.dosageForm && ` · ${i.dosageForm}`}
                               </small>
                             </td>
                             <td>

@@ -187,6 +187,7 @@ describe("بوابة الامتثال والتراخيص والتحقق الصي
 
     // 2. فحص صنف ينشر عرض بيع مع حفظ استثناء خاص به بنسبة 40%
     const item = s.items.find((i) => i.branchId === branchId && !i.cold)!;
+    item.expiry = "2028-01-01";
     const factor = 1;
     const discountedPrice = Math.round(item.price * factor * 0.6 * 100) / 100; // 40% discount
 

@@ -39,6 +39,7 @@ export interface Account {
   address?: string;
   operatingHours?: string;
   bio?: string;
+  facilityType?: "independent" | "agency_branch" | "agency_master";
 }
 export interface Chain {
   id: string;
@@ -52,6 +53,8 @@ export interface Branch {
   chainId?: string;
   active: boolean;
   alertDays?: number;
+  supplierName?: string;
+  returnWindowDays?: number;
   defaultDiscount?: number;
 }
 export interface Item {
@@ -75,7 +78,7 @@ export interface Item {
   supplier?: string;
   returnDeadline?: string;
   alertDays?: number;
-  returnStatus?: "open" | "returned" | "refused" | "not_returnable";
+  returnStatus?: "open" | "closed" | "returned" | "refused" | "not_returnable";
   packageUnit?: string;
   unitsPerPackage?: number;
   splitAllowed?: boolean;
@@ -180,6 +183,8 @@ export interface Order {
   returnStatus?: "approved" | "sent" | "received";
   disputeReason?: string;
   settlement?: string;
+  cancelledBy?: "buyer" | "seller";
+  cancelReason?: string;
 }
 export interface Wallet {
   branchId: string;
@@ -223,6 +228,53 @@ export interface FeeEntry {
   buyerBranchId: string;
   at: string;
 }
+export interface SubscriptionPlan {
+  id: string;
+  name: string;
+  badge?: string;
+  description: string;
+  monthlyFee: number;
+  annualFee: number;
+  features: string[];
+  maxRadarItems: number;
+  unlimitedMarket: boolean;
+  prioritySupport: boolean;
+  highlighted?: boolean;
+  targetType?: "independent" | "agency" | "all";
+}
+
+export interface PharmacySubscription {
+  id: string;
+  branchId?: string;
+  chainId?: string;
+  planId: string;
+  billingCycle: "monthly" | "annual";
+  status: "active" | "trial" | "grace_period" | "expired";
+  amount: number;
+  startDate: string;
+  renewalDate: string;
+  autoRenew: boolean;
+  paymentMethod: "wallet" | "bank_transfer" | "cash" | "free_trial";
+  reference?: string;
+  notes?: string;
+}
+
+export interface SubscriptionInvoice {
+  id: string;
+  subscriptionId: string;
+  branchId?: string;
+  chainId?: string;
+  planId: string;
+  amount: number;
+  billingCycle: "monthly" | "annual";
+  paidAt: string;
+  periodStart: string;
+  periodEnd: string;
+  paymentMethod: string;
+  reference: string;
+  status: "paid" | "pending";
+}
+
 export interface State {
   version: 2;
   revision: number;
@@ -238,6 +290,7 @@ export interface State {
   wallets: Wallet[];
   platformFeePercent?: number;
   minExpiryDays?: number;
+  nearExpiryAlertDays?: number;
   feeBalance?: number;
   feeLedger?: FeeEntry[];
   walletMovements?: {
@@ -264,6 +317,9 @@ export interface State {
     minDiscount?: number;
     minExpiry?: number;
   }[];
+  subscriptionPlans?: SubscriptionPlan[];
+  subscriptions?: PharmacySubscription[];
+  subscriptionInvoices?: SubscriptionInvoice[];
 }
 export interface Receipt {
   itemId: string;
@@ -271,3 +327,4 @@ export interface Receipt {
   rejected: number;
   missing: number;
 }
+

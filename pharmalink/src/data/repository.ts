@@ -122,6 +122,18 @@ export class LocalRepository implements Repository {
           modified = true;
         }
       }
+      if (!state.subscriptionPlans || state.subscriptionPlans.length === 0) {
+        state.subscriptionPlans = seed.subscriptionPlans;
+        modified = true;
+      }
+      if (!state.subscriptions || state.subscriptions.length === 0) {
+        state.subscriptions = seed.subscriptions;
+        modified = true;
+      }
+      if (!state.subscriptionInvoices || state.subscriptionInvoices.length === 0) {
+        state.subscriptionInvoices = seed.subscriptionInvoices;
+        modified = true;
+      }
       if (modified) {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
       }

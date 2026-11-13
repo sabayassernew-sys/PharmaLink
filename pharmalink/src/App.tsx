@@ -1,5 +1,5 @@
 import { SupplierReturns } from "./pages/SupplierReturns";
-import { supplierAlerts, licenseAlerts } from "./domain/notifications";
+import { supplierAlerts, licenseAlerts, branchPolicyAlerts } from "./domain/notifications";
 import { useEffect, useState } from "react";
 import {
   LayoutDashboard,
@@ -24,9 +24,10 @@ import {
   HelpCircle,
   LogOut,
   Link2,
+  CreditCard,
 } from "lucide-react";
 import { useApp } from "./context";
-import { canNav, roleNames, visibleTransfers, isLicenseExpired } from "./domain/access";
+import { canNav, roleNames, visibleTransfers, isLicenseExpired, ownsBranch, daysLeft, getEffectiveSubscription } from "./domain/access";
 import { Dashboard } from "./pages/Dashboard";
 import { Inventory } from "./pages/Inventory";
 import { Board } from "./pages/Board";
@@ -35,6 +36,9 @@ import { Trading } from "./pages/Trading";
 import { Management } from "./pages/Management";
 import { Home } from "./pages/Home";
 import { Modal } from "./components/UI";
+import { WelcomeOnboardingModal } from "./components/WelcomeOnboardingModal";
+import { SubscriptionCountdownBanner } from "./components/SubscriptionCountdownBanner";
+import { SubscriptionLockoutScreen } from "./components/SubscriptionLockoutScreen";
 const navigation = [
   {
     label: "مساحة العمل",
@@ -62,6 +66,7 @@ const navigation = [
       ["branches", "الفروع والتفويض", Building2],
       ["verification", "توثيق المنشآت", ShieldCheck],
       ["disputes", "النزاعات الخارجية", ShieldCheck],
+      ["subscriptions", "الاشتراكات والباقات", CreditCard],
       ["reports", "التقارير", BarChart3],
       ["audit", "سجل العمليات", History],
       ["brand", "الهوية البصرية", Palette],
@@ -84,13 +89,14 @@ const titles: Record<string, string> = {
   branches: "إدارة الفروع",
   verification: "توثيق المنشآت",
   disputes: "النزاعات الخارجية",
+  subscriptions: "الاشتراكات والباقات",
   reports: "التقارير",
   audit: "سجل العمليات",
   brand: "الهوية البصرية",
   settings: "الإعدادات",
 };
 export default function App() {
-  const { state, actor, setActor } = useApp();
+  const { state, actor, setActor, run, notify } = useApp();
   const start = () => {
     const p = location.hash.slice(1).split("?")[0];
     return p && canNav(actor, p)
@@ -144,6 +150,36 @@ export default function App() {
       t.status,
     ),
   ).length;
+
+  // Subscription state calculation using chain/branch inheritance
+  const myBranch = state.branches.find((b) => ownsBranch(state, actor, b.id));
+  const mySub = getEffectiveSubscription(state, actor);
+  const subDays = mySub ? daysLeft(mySub.renewalDate) : -1;
+  const isPendingApproval =
+    actor.role === "pending" ||
+    (!actor.verified && actor.role !== "admin" && actor.role !== "guest");
+  const isSubExpired =
+    !isPendingApproval &&
+    actor.role !== "admin" &&
+    actor.role !== "guest" &&
+    (!mySub || mySub.status === "expired" || subDays < 0);
+  const [welcomeOpen, setWelcomeOpen] = useState(false);
+
+  // Auto-open welcome modal for first-time session visit ONLY on accounts that actually manage billing (independent or agency_master)
+  useEffect(() => {
+    if (
+      !isPendingApproval &&
+      actor.verified &&
+      (actor.role === "independent" || actor.role === "agency_master")
+    ) {
+      const seen = sessionStorage.getItem("pharmalink_welcome_seen_" + actor.id);
+      if (!seen) {
+        setWelcomeOpen(true);
+        sessionStorage.setItem("pharmalink_welcome_seen_" + actor.id, "true");
+      }
+    }
+  }, [actor.id, actor.role, actor.verified, isPendingApproval]);
+
   const [, setClock] = useState(0);
   useEffect(() => {
     const timer = setInterval(() => setClock((x) => x + 1), 60000);
@@ -152,6 +188,7 @@ export default function App() {
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const supplierNotices = supplierAlerts(state, actor);
   const licNotices = licenseAlerts(state, actor);
+  const policyNotices = branchPolicyAlerts(state, actor);
   const current = canNav(actor, page) ? page : "home";
   return (
     <div className={`app-shell ${collapsed ? "sidebar-collapsed" : ""}`}>
@@ -280,6 +317,26 @@ export default function App() {
             </span>
           </div>
           <div className="topbar-actions">
+            {actor.role !== "admin" && actor.role !== "guest" && (
+              <button
+                className="icon-btn text-teal-700 bg-teal-50 hover:bg-teal-100 border border-teal-200"
+                title={
+                  actor.role === "agency_branch"
+                    ? "اشتراك السلسلة (مغطى مركزياً)"
+                    : "عرض باقات واشتراكات المنصة"
+                }
+                aria-label="عرض باقات واشتراكات المنصة"
+                onClick={() => {
+                  if (actor.role === "agency_branch") {
+                    notify("هذا الفرع مغطى ومفعل مركزياً تحت باقة إدارة السلسلة");
+                  } else {
+                    setWelcomeOpen(true);
+                  }
+                }}
+              >
+                <CreditCard size={18} />
+              </button>
+            )}
             <button
               className="notification-btn"
               title="الإشعارات"
@@ -287,7 +344,7 @@ export default function App() {
               onClick={() => setNotificationsOpen(!notificationsOpen)}
             >
               <Bell size={20} />
-              {alerts + supplierNotices.length + licNotices.length > 0 && <i />}
+              {alerts + supplierNotices.length + licNotices.length + policyNotices.length > 0 && <i />}
             </button>
             <div
               className="account-avatar overflow-hidden cursor-pointer"
@@ -304,6 +361,22 @@ export default function App() {
             </div>
           </div>
         </header>
+        {!isPendingApproval && actor.role !== "admin" && actor.role !== "guest" && mySub && (
+          <SubscriptionCountdownBanner
+            daysLeft={subDays}
+            planName={state.subscriptionPlans?.find((p) => p.id === mySub?.planId)?.name}
+            isTrial={Boolean(mySub?.notes?.includes("تجريب"))}
+            isBranch={actor.role === "agency_branch"}
+            chainName={state.chains.find((c) => c.id === actor.chainId)?.name}
+            onOpenPlans={() => {
+              if (actor.role === "agency_branch") {
+                notify("إدارة وسداد باقات السلسلة محصورة بالإدارة المركزية للمجموعة");
+              } else {
+                setWelcomeOpen(true);
+              }
+            }}
+          />
+        )}
         <div className="demo-bar">
           <span>
             <span className="demo-dot" /> وضع التجربة المحلية — تبديل الحسابات
@@ -320,25 +393,53 @@ export default function App() {
                 location.hash = "home";
               }}
             >
-              {state.accounts.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.name} • {roleNames[a.role]}
-                  {a.suspended
-                    ? " (مجمد لمخالفة)"
-                    : isLicenseExpired(a)
-                      ? " (ترخيص منتهي)"
-                      : !a.verified && a.role !== "guest"
-                        ? " (قيد المراجعة)"
-                        : ""}
-                </option>
-              ))}
+              {state.accounts.map((a) => {
+                const b = state.branches.find((br) => br.id === a.branchId);
+                const sub = state.subscriptions?.find((s) => s.branchId === b?.id);
+                const isExp =
+                  sub && (sub.status === "expired" || daysLeft(sub.renewalDate) < 0);
+                return (
+                  <option key={a.id} value={a.id}>
+                    {a.name} • {roleNames[a.role]}
+                    {a.suspended
+                      ? " (مجمد لمخالفة)"
+                      : isExp
+                        ? " (🔒 اشتراك منتهي)"
+                        : isLicenseExpired(a)
+                          ? " (ترخيص منتهي)"
+                          : !a.verified && a.role !== "guest"
+                            ? " (قيد المراجعة)"
+                            : ""}
+                  </option>
+                );
+              })}
             </select>
           </label>
         </div>
         {notificationsOpen && (
           <Modal title="الإشعارات وتنبيهات الامتثال" onClose={() => setNotificationsOpen(false)}>
-            {!supplierNotices.length && !licNotices.length && !alerts && <p>لا توجد تنبيهات مستحقة.</p>}
+            {!supplierNotices.length && !licNotices.length && !policyNotices.length && !alerts && <p>لا توجد تنبيهات مستحقة.</p>}
             
+            {policyNotices.map((n, idx) => (
+              <button
+                className="task-row w-full text-right bg-teal-50/70 border border-teal-200"
+                key={"pol-" + idx}
+                onClick={() => {
+                  navigate("returns");
+                  setNotificationsOpen(false);
+                }}
+              >
+                <div>
+                  <strong className="text-teal-800 font-bold block mb-1">
+                    {n.text}
+                  </strong>
+                  <p className="text-xs text-teal-700 m-0">
+                    انقر هنا للانتقال إلى شاشة مرتجعات الموردين ومتابعة المهل المحسوبة.
+                  </p>
+                </div>
+              </button>
+            ))}
+
             {licNotices.map((n, idx) => (
               <button
                 className="task-row w-full text-right"
@@ -399,7 +500,37 @@ export default function App() {
           </Modal>
         )}
         <main key={actor.id + "-" + current} className="page-content">
-          {current === "home" ? (
+          {isSubExpired && current !== "subscriptions" ? (
+            <SubscriptionLockoutScreen
+              pharmacyName={branch?.name || actor.name}
+              isBranch={actor.role === "agency_branch"}
+              chainName={state.chains.find((c) => c.id === actor.chainId)?.name}
+              isNewAccount={!mySub}
+              onNavigateToSubscriptions={() => navigate("subscriptions")}
+              onActivateTrial={async () => {
+                const targetBranch = myBranch || branch;
+                if (targetBranch) {
+                  const trialPlanId = actor.role === "agency_master" ? "plan_chains" : "plan_pro";
+                  const ok = await run({
+                    type: "assignSubscription",
+                    branchId: targetBranch.id,
+                    planId: trialPlanId,
+                    billingCycle: "monthly",
+                    paymentMethod: "free_trial",
+                    notes: "فترة تجريبية مجانية 14 يوماً",
+                  });
+                  if (ok) {
+                    notify("تم تفعيل فترتك التجريبية المجانية (14 يوماً) بنجاح!");
+                  }
+                } else {
+                  notify("تم اعتماد الفترة التجريبية المجانية (14 يوماً) لحسابك");
+                }
+              }}
+              onSelectPlan={(_planId, _cycle) => {
+                navigate("subscriptions");
+              }}
+            />
+          ) : current === "home" ? (
             <Home navigate={navigate} />
           ) : current === "dashboard" ? (
             <Dashboard navigate={navigate} />
@@ -424,6 +555,38 @@ export default function App() {
           </span>
           <span>النسخة المحلية · لا توجد مدفوعات حقيقية</span>
         </footer>
+
+        <WelcomeOnboardingModal
+          isOpen={welcomeOpen}
+          onClose={() => setWelcomeOpen(false)}
+          pharmacyName={branch?.name || actor.name}
+          targetRole={actor.role}
+          onActivateTrial={async () => {
+            const targetBranch = myBranch || branch;
+            if (targetBranch) {
+              const trialPlanId = actor.role === "agency_master" ? "plan_chains" : "plan_pro";
+              const ok = await run({
+                type: "assignSubscription",
+                branchId: targetBranch.id,
+                planId: trialPlanId,
+                billingCycle: "monthly",
+                paymentMethod: "free_trial",
+                notes: "فترة تجريبية مجانية 14 يوماً",
+              });
+              if (ok) {
+                notify("تم تفعيل فترتك التجريبية المجانية (14 يوماً) بنجاح!");
+                setWelcomeOpen(false);
+              }
+            } else {
+              notify("تم اعتماد الفترة التجريبية المجانية (14 يوماً) لحسابك");
+              setWelcomeOpen(false);
+            }
+          }}
+          onSelectPlan={(_planId, _cycle) => {
+            setWelcomeOpen(false);
+            navigate("subscriptions");
+          }}
+        />
       </div>
     </div>
   );

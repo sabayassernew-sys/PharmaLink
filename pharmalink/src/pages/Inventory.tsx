@@ -18,7 +18,6 @@ import {
   FileText,
   History,
   SlidersHorizontal,
-  Archive,
   ExternalLink,
 } from "lucide-react";
 import { useApp } from "../context";
@@ -30,7 +29,7 @@ import {
   eligibilityReasons,
   ownsBranch,
 } from "../domain/access";
-import type { ImportRow } from "../domain/types";
+import type { ImportRow, Item } from "../domain/types";
 import {
   Badge,
   Button,
@@ -52,13 +51,16 @@ export function Inventory({
 }) {
   const { state, actor, run, busy, notify } = useApp();
   const [query, setQuery] = useState("");
-  const [expiry, setExpiry] = useState("all");
+  const [filter, setFilter] = useState("available");
   const [branch, setBranch] = useState("all");
   const [selected, setSelected] = useState<string | null>(
     new URLSearchParams(location.hash.split("?")[1] || "").get("item"),
   );
   const [action, setAction] = useState("details");
   const [add, setAdd] = useState(false);
+  const [blockModalItem, setBlockModalItem] = useState<Item | null>(null);
+  const [blockReason, setBlockReason] = useState("");
+  const [blockModalError, setBlockModalError] = useState("");
   const [importing, setImport] = useState(initialImport);
   const [rows, setRows] = useState<ImportRow[]>([]);
   const [fingerprint, setFingerprint] = useState("");
@@ -71,23 +73,40 @@ export function Inventory({
       "",
   );
   const all = visibleItems(state, actor);
+  const nearDays = state.nearExpiryAlertDays ?? 90;
+  const minExpiryDays = state.minExpiryDays ?? 30;
   const filtered = useMemo(
     () =>
-      all.filter(
-        (i) =>
-          (branch === "all" || i.branchId === branch) &&
-          [i.name, i.ingredient, i.batch]
-            .join(" ")
-            .toLowerCase()
-            .includes(query.toLowerCase()) &&
-          (expiry === "all" ||
-            (expiry === "near"
-              ? daysLeft(i.expiry) >= 0 && daysLeft(i.expiry) <= 90
-              : expiry === "expired"
-                ? daysLeft(i.expiry) < 0
-                : available(state, i.id) > 0)),
-      ),
-    [all, branch, query, expiry, state],
+      all.filter((i) => {
+        if (branch !== "all" && i.branchId !== branch) return false;
+        const matchesQuery = [i.name, i.ingredient, i.batch]
+          .join(" ")
+          .toLowerCase()
+          .includes(query.toLowerCase());
+        if (!matchesQuery) return false;
+
+        const days = daysLeft(i.expiry);
+        const free = available(state, i.id);
+
+        switch (filter) {
+          case "available":
+            return i.quantity > 0;
+          case "allocatable":
+            return free > 0 && eligible(i, state);
+          case "near":
+            return i.quantity > 0 && days >= 0 && days <= nearDays;
+          case "expired":
+            return days < 0;
+          case "blocked":
+            return !!i.blocked;
+          case "depleted":
+            return i.quantity === 0;
+          case "all":
+          default:
+            return true;
+        }
+      }),
+    [all, branch, query, filter, state],
   );
   const current = all.find((i) => i.id === selected);
   useEffect(() => {
@@ -160,14 +179,17 @@ export function Inventory({
             />
           </label>
           <select
-            aria-label="تصفية الصلاحية"
-            value={expiry}
-            onChange={(e) => setExpiry(e.target.value)}
+            aria-label="تصفية المخزون والصلاحية"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
           >
-            <option value="all">جميع الأصناف</option>
-            <option value="near">قريبة الانتهاء • 90 يومًا</option>
-            <option value="expired">منتهية الصلاحية</option>
-            <option value="available">متاح للتخصيص</option>
+            <option value="available">المخزون المتوفر</option>
+            <option value="allocatable">المتاح للبيع بالبورصة</option>
+            <option value="near">تنبيهات الصلاحية ({nearDays} يوم)</option>
+            <option value="expired">الأدوية المنتهية</option>
+            <option value="blocked">أصناف موقوفة للمراجعة</option>
+            <option value="depleted">أدوية تم تصريفها بالكامل</option>
+            <option value="all">السجل الشامل</option>
           </select>
           {actor.role === "agency_master" && (
             <select
@@ -190,7 +212,7 @@ export function Inventory({
             title="مسح الفلاتر"
             onClick={() => {
               setQuery("");
-              setExpiry("all");
+              setFilter("available");
               setBranch("all");
             }}
           >
@@ -226,6 +248,12 @@ export function Inventory({
         <div className="table-caption">
           <span>
             عرض {filtered.length} من {all.length} بند
+            {filter === "available" && all.some((i) => i.quantity === 0) && (
+              <span className="text-slate-500 font-normal">
+                {" "}
+                (يتم إخفاء {all.filter((i) => i.quantity === 0).length} صنف تم تصريفه)
+              </span>
+            )}
           </span>
           <span>
             آخر عملية:{" "}
@@ -252,28 +280,29 @@ export function Inventory({
             <tbody>
               {filtered.map((i) => {
                 const days = daysLeft(i.expiry),
-                  free = available(state, i.id);
+                  free = available(state, i.id),
+                  isDepleted = i.quantity === 0;
                 return (
-                  <tr key={i.id}>
+                  <tr
+                    key={i.id}
+                    className={isDepleted ? "opacity-75 bg-slate-50/60" : ""}
+                  >
                     <td>
                       <button
                         className="drug-name"
                         onClick={() => {
                           setSelected(i.id);
-                          setAction("details");
+                          setAction(isDepleted ? "ledger" : "details");
                         }}
                       >
                         {i.name}
                       </button>
                       <small>{i.ingredient}</small>
-                      {!eligible(i, state) && (
-                        <Badge tone="warning">
-                          {i.cold
-                            ? "تبريد • خارج نطاق التداول"
-                            : days < (state.minExpiryDays ?? 30)
-                              ? "صلاحية غير مؤهلة"
-                              : "موقوف"}
-                        </Badge>
+                      {i.blocked && (
+                        <Badge tone="danger">⛔ موقوف للمراجعة</Badge>
+                      )}
+                      {i.cold && (
+                        <Badge tone="warning">❄️ مبرد</Badge>
                       )}
                     </td>
                     {actor.role === "agency_master" && (
@@ -288,11 +317,13 @@ export function Inventory({
                       <span className="date">{i.expiry}</span>
                       <small
                         className={
-                          days < 30
-                            ? "text-red-600"
-                            : days <= 90
-                              ? "text-amber-600"
-                              : "text-slate-500"
+                          days < 0
+                            ? "text-red-600 font-bold"
+                            : days < minExpiryDays
+                              ? "text-rose-600 font-semibold"
+                              : days <= nearDays
+                                ? "text-amber-600 font-medium"
+                                : "text-slate-500"
                         }
                       >
                         {days < 0 ? "منتهي" : `${number(days)} يومًا`}
@@ -301,7 +332,7 @@ export function Inventory({
                     <td>{i.unit}</td>
                     <td className="numeric">
                       {number(i.quantity)}
-                      {i.unitsPerPackage && (
+                      {i.unitsPerPackage && i.quantity > 0 && (
                         <small>
                           {Math.floor(i.quantity / i.unitsPerPackage)}{" "}
                           {i.packageUnit} و{i.quantity % i.unitsPerPackage}{" "}
@@ -312,19 +343,34 @@ export function Inventory({
                     <td className="numeric text-amber-600">
                       {number(i.quantity - free)}
                     </td>
-                    <td className="numeric text-teal-700 font-bold">
+                    <td
+                      className={`numeric font-bold ${free > 0 ? "text-teal-700" : "text-slate-400"}`}
+                    >
                       {number(free)}
                     </td>
                     <td>
-                      <button
-                        className="row-action"
-                        onClick={() => {
-                          setSelected(i.id);
-                          setAction("details");
-                        }}
-                      >
-                        إجراءات <MoreHorizontal size={17} />
-                      </button>
+                      {!isDepleted ? (
+                        <button
+                          className="row-action"
+                          onClick={() => {
+                            setSelected(i.id);
+                            setAction("details");
+                          }}
+                        >
+                          إجراءات <MoreHorizontal size={17} />
+                        </button>
+                      ) : (
+                        <button
+                          className="row-action text-slate-600 hover:text-teal-700"
+                          title="عرض سجل حركة وخروج الصنف"
+                          onClick={() => {
+                            setSelected(i.id);
+                            setAction("ledger");
+                          }}
+                        >
+                          سجل الحركة <History size={16} />
+                        </button>
+                      )}
                     </td>
                   </tr>
                 );
@@ -335,16 +381,59 @@ export function Inventory({
         {!filtered.length && (
           <Empty
             title="لا توجد أصناف مطابقة"
-            description="غيّر البحث أو أضف بندًا أو استورد ملف المخزون."
+            description={
+              filter === "available" &&
+              all.some(
+                (i) =>
+                  i.quantity === 0 &&
+                  [i.name, i.ingredient, i.batch]
+                    .join(" ")
+                    .toLowerCase()
+                    .includes(query.toLowerCase()),
+              )
+                ? "هذا الصنف موجود في السجلات ولكن تم تصريف كميته بالكامل (الرصيد 0)."
+                : "غيّر البحث أو أضف بندًا أو استورد ملف المخزون."
+            }
+            action={
+              filter === "available" &&
+              all.some(
+                (i) =>
+                  i.quantity === 0 &&
+                  [i.name, i.ingredient, i.batch]
+                    .join(" ")
+                    .toLowerCase()
+                    .includes(query.toLowerCase()),
+              ) ? (
+                <Button
+                  variant="secondary"
+                  onClick={() => setFilter("depleted")}
+                >
+                  عرض الأدوية التي تم تصريفها بالكامل
+                </Button>
+              ) : undefined
+            }
           />
         )}
       </Card>
       {current && (
         <Modal
-          title="تفاصيل وإجراءات الصنف"
+          title={
+            current.quantity === 0
+              ? "سجل وبيانات دواء تم تصريفه"
+              : "تفاصيل وإجراءات الصنف"
+          }
           onClose={() => setSelected(null)}
           wide
         >
+          {current.quantity === 0 && (
+            <div className="info-strip flex items-center gap-2 bg-slate-50 border border-slate-200 p-3 rounded-lg mb-4 text-slate-700">
+              <Package size={18} className="text-slate-400" />
+              <span>
+                هذا الدواء تم تصريفه بالكامل (الرصيد 0). تم توثيق تفاصيل خروجه في
+                سجل العمليات.
+              </span>
+            </div>
+          )}
           <div className="item-summary">
             <div>
               <h3>{current.name}</h3>
@@ -353,13 +442,19 @@ export function Inventory({
               </p>
             </div>
             <div className="flex gap-3">
-              <Badge>الموجود {current.quantity}</Badge>
-              <Badge tone="warning">
-                المحجوز {current.quantity - available(state, current.id)}
-              </Badge>
-              <Badge tone="success">
-                المتاح {available(state, current.id)}
-              </Badge>
+              {current.quantity === 0 ? (
+                <Badge tone="neutral">الرصيد نافد (0)</Badge>
+              ) : (
+                <>
+                  <Badge>الموجود {current.quantity}</Badge>
+                  <Badge tone="warning">
+                    المحجوز {current.quantity - available(state, current.id)}
+                  </Badge>
+                  <Badge tone="success">
+                    المتاح {available(state, current.id)}
+                  </Badge>
+                </>
+              )}
             </div>
           </div>
           <div className="action-layout">
@@ -380,8 +475,10 @@ export function Inventory({
               ]
                 .filter(
                   ([key]) =>
-                    !["surplus", "transfer"].includes(String(key)) ||
-                    actor.role === "agency_branch",
+                    (!["surplus", "transfer"].includes(String(key)) ||
+                      actor.role === "agency_branch") &&
+                    (current.quantity > 0 ||
+                      !["surplus", "transfer", "sale"].includes(String(key))),
                 )
                 .map(([key, label, Icon]) => {
                   const C = Icon as typeof FileText;
@@ -482,19 +579,9 @@ export function Inventory({
                   <Button
                     variant={current.blocked ? "secondary" : "danger"}
                     onClick={() => {
-                      const reason = prompt(
-                        "سبب " +
-                          (current.blocked
-                            ? "إعادة التفعيل"
-                            : "إيقاف الصنف للمراجعة"),
-                      );
-                      if (reason)
-                        run({
-                          type: "setBlock",
-                          itemId: current.id,
-                          blocked: !current.blocked,
-                          reason,
-                        });
+                      setBlockModalItem(current);
+                      setBlockReason("");
+                      setBlockModalError("");
                     }}
                   >
                     {current.blocked
@@ -504,14 +591,6 @@ export function Inventory({
                   <Packaging item={current} />
                   <ItemDiscountForm item={current} />
                   <SupplierForm item={current} />
-                  <Button
-                    variant="ghost"
-                    onClick={() =>
-                      done({ type: "archive", itemId: current.id })
-                    }
-                  >
-                    <Archive size={16} /> أرشفة البند الخالي من الرصيد
-                  </Button>
                 </>
               )}
               {action === "surplus" && (
@@ -592,7 +671,15 @@ export function Inventory({
                   </Button>
                 </Form>
               )}
-              {action === "sale" && <SaleEditor item={current} />}
+              {action === "sale" && (
+                <SaleEditor
+                  item={current}
+                  onDone={() => {
+                    setSelected(null);
+                    notify("تم حفظ ونشر العرض في البورصة الدوائية بنجاح ✅");
+                  }}
+                />
+              )}
               {action === "ledger" && (
                 <>
                   <h3>سجل العمليات المرتبطة</h3>
@@ -657,6 +744,151 @@ export function Inventory({
                 </Form>
               )}
             </div>
+          </div>
+        </Modal>
+      )}
+      {blockModalItem && (
+        <Modal
+          title={
+            blockModalItem.blocked
+              ? "إعادة تفعيل أهلية الصنف للتداول"
+              : "إيقاف الصنف للمراجعة والتحري الرقابي"
+          }
+          onClose={() => setBlockModalItem(null)}
+        >
+          <div className="space-y-4 text-right">
+            <div className="bg-slate-50 border border-slate-200 p-3.5 rounded-xl">
+              <div className="flex items-center justify-between mb-1">
+                <strong className="text-base text-slate-900 font-bold">{blockModalItem.name}</strong>
+                <Badge tone={blockModalItem.blocked ? "danger" : "success"}>
+                  {blockModalItem.blocked ? "موقوف حالياً" : "نشط ومؤهل"}
+                </Badge>
+              </div>
+              <p className="text-xs text-slate-500 m-0">
+                تشغيلة: <code>{blockModalItem.batch}</code> · الصلاحية: {blockModalItem.expiry} · الرصيد: {blockModalItem.quantity} {blockModalItem.unit}
+              </p>
+            </div>
+
+            <div
+              className={`p-3 rounded-xl border text-xs leading-relaxed ${
+                blockModalItem.blocked
+                  ? "bg-emerald-50/80 border-emerald-200 text-emerald-900"
+                  : "bg-amber-50/80 border-amber-200 text-amber-900"
+              }`}
+            >
+              {blockModalItem.blocked ? (
+                <>
+                  <strong>أثر إعادة التفعيل:</strong> سيتم رفع التجميد عن الصنف فوراً، ويعود مؤهلاً للظهور في قائمة «المتاح للبيع بالبورصة» والمناقلات بين الفروع وفق شروط الصلاحية المعمول بها.
+                </>
+              ) : (
+                <>
+                  <strong>أثر الإيقاف الاحترازي:</strong> سيتم فوراً حظر نشر الصنف في البورصة ومنع مناقلته أو شرائه من أي صيدلية أخرى، مع بقاء رصيده محفوظاً في مخزونكم الداخلي لحين اكتمال التحري.
+                </>
+              )}
+            </div>
+
+            <div>
+              <span className="block text-xs font-bold text-slate-700 mb-2">
+                {blockModalItem.blocked
+                  ? "أسباب التفعيل الشائعة (انقر للاختيار السريع):"
+                  : "أسباب الإيقاف الشائعة (انقر للاختيار السريع):"}
+              </span>
+              <div className="flex flex-wrap gap-1.5">
+                {(blockModalItem.blocked
+                  ? [
+                      "انتهاء فحص التشغيلة وتأكيد سلامتها ومطابقتها",
+                      "اكتمال المطابقة والتسوية المخزنية بنجاح",
+                      "تصحيح خطأ التسعير / البيانات واستيفاء المراجعة",
+                      "إلغاء تعميم الاشتباه والتصريح بصرف التشغيلة",
+                    ]
+                  : [
+                      "تعميم رقابي / سحب تشغيلة (Batch Recall)",
+                      "اشتباه في سلامة التخزين أو تلف العبوات",
+                      "إيقاف مؤقت لأغراض الجرد وتدقيق الرصيد الفعلي",
+                      "مراجعة تسعير الصنف أو تصحيح بيانات التشغيلة",
+                    ]
+                ).map((quick) => (
+                  <button
+                    key={quick}
+                    type="button"
+                    className="text-[11px] py-1 px-2.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 transition-colors text-right"
+                    onClick={() => {
+                      setBlockReason(quick);
+                      setBlockModalError("");
+                    }}
+                  >
+                    + {quick}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {blockModalError && (
+              <div className="p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold">
+                ⚠️ {blockModalError}
+              </div>
+            )}
+
+            <Form
+              onSubmit={async (f) => {
+                const reason = String(f.get("reason") || "").trim();
+                if (reason.length < 4) {
+                  setBlockModalError("يرجى كتابة سبب واضح وموثق (4 أحرف على الأقل)");
+                  return;
+                }
+                setBlockModalError("");
+                const ok = await run({
+                  type: "setBlock",
+                  itemId: blockModalItem.id,
+                  blocked: !blockModalItem.blocked,
+                  reason,
+                });
+                if (ok) {
+                  notify(
+                    blockModalItem.blocked
+                      ? "تمت إعادة تفعيل الصنف بنجاح"
+                      : "تم إيقاف الصنف للمراجعة وتجميد أهليته",
+                  );
+                  setBlockModalItem(null);
+                }
+              }}
+            >
+              <label className="field m-0">
+                <span>
+                  {blockModalItem.blocked ? "سبب أو مستند إعادة التفعيل *" : "سبب الإيقاف والتحري الرقابي *"}
+                  <small className="text-slate-400 font-normal"> (يُسجل في سجل العمليات والرقابة)</small>
+                </span>
+                <textarea
+                  name="reason"
+                  rows={2}
+                  required
+                  value={blockReason}
+                  onChange={(e) => {
+                    setBlockReason(e.target.value);
+                    if (blockModalError) setBlockModalError("");
+                  }}
+                  placeholder={
+                    blockModalItem.blocked
+                      ? "اكتب تفاصيل التفعيل أو مرجع انتهاء الفحص..."
+                      : "اكتب سبب الإيقاف أو مرجع التعميم أو سبب المراجعة..."
+                  }
+                  className="w-full text-xs"
+                />
+              </label>
+
+              <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-200 mt-3">
+                <Button variant="secondary" onClick={() => setBlockModalItem(null)}>
+                  إلغاء وتراجع
+                </Button>
+                <Button
+                  variant={blockModalItem.blocked ? "primary" : "danger"}
+                  type="submit"
+                  disabled={busy || blockReason.trim().length < 4}
+                >
+                  {blockModalItem.blocked ? "تأكيد إعادة التفعيل" : "تأكيد إيقاف الصنف"}
+                </Button>
+              </div>
+            </Form>
           </div>
         </Modal>
       )}

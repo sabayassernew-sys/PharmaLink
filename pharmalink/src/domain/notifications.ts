@@ -1,28 +1,65 @@
 import type { State, Account } from "./types";
-import { visibleItems, daysLeft } from "./access";
+import {
+  visibleItems,
+  daysLeft,
+  getEffectiveReturnDeadline,
+  getEffectiveAlertDays,
+} from "./access";
 export function supplierAlerts(s: State, a: Account) {
   return visibleItems(s, a)
-    .filter(
-      (i) =>
-        i.quantity > 0 &&
-        i.returnDeadline &&
-        (!i.returnStatus || i.returnStatus === "open") &&
-        daysLeft(i.returnDeadline) <=
-          (i.alertDays ??
-            s.branches.find((b) => b.id === i.branchId)?.alertDays ??
-            10),
-    )
-    .map((i) => ({
-      item: i,
-      days: daysLeft(i.returnDeadline!),
-      text:
-        daysLeft(i.returnDeadline!) < 0
-          ? "انتهت مهلة الإرجاع المسجلة"
-          : daysLeft(i.returnDeadline!) === 0
-            ? "اليوم آخر موعد إرجاع مسجل"
-            : "مهلة إرجاع المورد تقترب",
-    }));
+    .filter((i) => {
+      if (i.quantity <= 0) return false;
+      if (i.returnStatus && i.returnStatus !== "open") return false;
+      const deadline = getEffectiveReturnDeadline(i, s);
+      if (!deadline) return false;
+      const alertWindow = getEffectiveAlertDays(i, s);
+      return daysLeft(deadline) <= alertWindow;
+    })
+    .map((i) => {
+      const deadline = getEffectiveReturnDeadline(i, s)!;
+      const days = daysLeft(deadline);
+      return {
+        item: i,
+        days,
+        text:
+          days < 0
+            ? "انتهت مهلة الإرجاع المسجلة"
+            : days === 0
+              ? "اليوم آخر موعد إرجاع مسجل"
+              : "مهلة إرجاع المورد تقترب",
+      };
+    });
 }
+
+export interface PolicyNotice {
+  branchId: string;
+  supplierName: string;
+  returnWindowDays: number;
+  alertDays: number;
+  text: string;
+}
+
+export function branchPolicyAlerts(s: State, a: Account): PolicyNotice[] {
+  if (a.role !== "agency_branch" || !a.branchId) return [];
+  const b = s.branches.find((br) => br.id === a.branchId);
+  if (!b || !b.supplierName || !b.returnWindowDays) return [];
+
+  const policyEvent = s.events.find(
+    (e) => e.reference === b.id && e.action === "تحديث سياسة مورد الفرع",
+  );
+  if (!policyEvent) return [];
+
+  return [
+    {
+      branchId: b.id,
+      supplierName: b.supplierName,
+      returnWindowDays: b.returnWindowDays,
+      alertDays: b.alertDays ?? 10,
+      text: `إشعار إداري: تم اعتماد سياسة مورد الفرع (${b.supplierName}) — مهلة الإرجاع: قبل ${b.returnWindowDays} يوماً من الصلاحية، والتنبيه قبل ${b.alertDays ?? 10} أيام.`,
+    },
+  ];
+}
+
 export interface LicenseNotice {
   account: Account;
   type: "expired" | "critical_15" | "warning_30" | "suspended";
