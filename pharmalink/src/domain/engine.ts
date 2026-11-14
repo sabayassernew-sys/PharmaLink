@@ -181,6 +181,7 @@ export type Command =
       type: "resubmit";
       name: string;
       email: string;
+      password?: string;
       license: string;
       pharmacistName?: string;
       practiceLicense?: string;
@@ -246,6 +247,7 @@ export type Command =
       type: "register";
       name: string;
       email: string;
+      password?: string;
       license: string;
       pharmacistName?: string;
       practiceLicense?: string;
@@ -527,6 +529,7 @@ export function transact(
       Object.assign(actor, {
         name: command.name,
         email: command.email,
+        ...(command.password && command.password.trim() ? { password: command.password.trim() } : {}),
         license: command.license,
         pharmacistName: command.pharmacistName,
         practiceLicense: command.practiceLicense,
@@ -557,6 +560,7 @@ export function transact(
         id: uid("account"),
         name: command.name.trim(),
         email: command.email,
+        password: command.password?.trim() || "123456",
         license: command.license,
         pharmacistName: command.pharmacistName?.trim(),
         practiceLicense: command.practiceLicense?.trim(),

@@ -114,6 +114,18 @@ export class LocalRepository implements Repository {
             ca.practiceLicense = sa.practiceLicense;
             modified = true;
           }
+          if (sa.email && !ca.email) {
+            ca.email = sa.email;
+            modified = true;
+          }
+          if (sa.password && !ca.password) {
+            ca.password = sa.password;
+            modified = true;
+          }
+          if (sa.facilityType && !ca.facilityType) {
+            ca.facilityType = sa.facilityType;
+            modified = true;
+          }
         }
       }
       for (const b of state.branches) {

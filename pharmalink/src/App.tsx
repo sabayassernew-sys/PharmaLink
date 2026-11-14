@@ -25,9 +25,15 @@ import {
   LogOut,
   Link2,
   CreditCard,
+  Headphones,
+  Phone,
+  MessageSquare,
+  Mail,
+  LogIn,
+  Users,
 } from "lucide-react";
 import { useApp } from "./context";
-import { canNav, roleNames, visibleTransfers, isLicenseExpired, ownsBranch, daysLeft, getEffectiveSubscription } from "./domain/access";
+import { canNav, roleNames, visibleTransfers, ownsBranch, daysLeft, getEffectiveSubscription } from "./domain/access";
 import { Dashboard } from "./pages/Dashboard";
 import { Inventory } from "./pages/Inventory";
 import { Board } from "./pages/Board";
@@ -39,6 +45,7 @@ import { Modal } from "./components/UI";
 import { WelcomeOnboardingModal } from "./components/WelcomeOnboardingModal";
 import { SubscriptionCountdownBanner } from "./components/SubscriptionCountdownBanner";
 import { SubscriptionLockoutScreen } from "./components/SubscriptionLockoutScreen";
+import { LoginModal } from "./components/LoginModal";
 const navigation = [
   {
     label: "مساحة العمل",
@@ -164,6 +171,8 @@ export default function App() {
     actor.role !== "guest" &&
     (!mySub || mySub.status === "expired" || subDays < 0);
   const [welcomeOpen, setWelcomeOpen] = useState(false);
+  const [supportOpen, setSupportOpen] = useState(false);
+  const [loginOpen, setLoginOpen] = useState(false);
 
   // Auto-open welcome modal for first-time session visit ONLY on accounts that actually manage billing (independent or agency_master)
   useEffect(() => {
@@ -265,22 +274,39 @@ export default function App() {
           })}
         </nav>
         <div className="sidebar-footer">
-          <button className="nav-item" onClick={() => navigate("settings")}>
-            <HelpCircle size={19} />
-            <span>دليل ونسخة احتياطية</span>
-          </button>
-          <button
-            className="nav-item"
-            onClick={() => {
-              setActor("guest");
-              setPage("home");
-              location.hash = "home";
-            }}
-          >
-            <LogOut size={18} />
-            <span>الخروج للواجهة العامة</span>
-          </button>
-          <small>PharmaLink · Local Edition 2.0</small>
+          {actor.role === "guest" ? (
+            <button
+              className="nav-item !text-teal-400 font-bold hover:!bg-white/10"
+              onClick={() => setLoginOpen(true)}
+            >
+              <LogIn size={19} />
+              <span>تسجيل الدخول للمنصة</span>
+            </button>
+          ) : (
+            <>
+              <button className="nav-item" onClick={() => setSupportOpen(true)}>
+                <Headphones size={19} />
+                <span>الدعم الفني والمساعدة</span>
+              </button>
+              <button className="nav-item" onClick={() => navigate("settings")}>
+                <HelpCircle size={19} />
+                <span>دليل ونسخة احتياطية</span>
+              </button>
+              <button
+                className="nav-item"
+                onClick={() => {
+                  setActor("guest");
+                  setPage("home");
+                  location.hash = "home";
+                  notify("تم تسجيل الخروج من مساحة العمل.");
+                }}
+              >
+                <LogOut size={18} />
+                <span>تسجيل الخروج</span>
+              </button>
+            </>
+          )}
+          <small>PharmaLink · Local Edition 2.4.1</small>
         </div>
       </aside>
       {mobile && (
@@ -317,48 +343,81 @@ export default function App() {
             </span>
           </div>
           <div className="topbar-actions">
-            {actor.role !== "admin" && actor.role !== "guest" && (
+            {actor.role === "guest" ? (
               <button
-                className="icon-btn text-teal-700 bg-teal-50 hover:bg-teal-100 border border-teal-200"
-                title={
-                  actor.role === "agency_branch"
-                    ? "اشتراك السلسلة (مغطى مركزياً)"
-                    : "عرض باقات واشتراكات المنصة"
-                }
-                aria-label="عرض باقات واشتراكات المنصة"
-                onClick={() => {
-                  if (actor.role === "agency_branch") {
-                    notify("هذا الفرع مغطى ومفعل مركزياً تحت باقة إدارة السلسلة");
-                  } else {
-                    setWelcomeOpen(true);
-                  }
-                }}
+                className="button primary text-xs flex items-center gap-1.5 py-1.5 px-3"
+                onClick={() => setLoginOpen(true)}
               >
-                <CreditCard size={18} />
+                <LogIn size={15} />
+                <span>تسجيل الدخول</span>
               </button>
+            ) : (
+              <>
+                <button
+                  className="button ghost text-xs flex items-center gap-1.5 text-slate-600 hover:text-teal-700"
+                  onClick={() => setLoginOpen(true)}
+                  title="تبديل الحساب أو تسجيل دخول آخر"
+                >
+                  <Users size={15} />
+                  <span className="hidden sm:inline">تبديل الحساب</span>
+                </button>
+                {actor.role !== "admin" && (
+                  <button
+                    className="icon-btn text-teal-700 bg-teal-50 hover:bg-teal-100 border border-teal-200"
+                    title={
+                      actor.role === "agency_branch"
+                        ? "اشتراك السلسلة (مغطى مركزياً)"
+                        : "عرض باقات واشتراكات المنصة"
+                    }
+                    aria-label="عرض باقات واشتراكات المنصة"
+                    onClick={() => {
+                      if (actor.role === "agency_branch") {
+                        notify("هذا الفرع مغطى ومفعل مركزياً تحت باقة إدارة السلسلة");
+                      } else {
+                        setWelcomeOpen(true);
+                      }
+                    }}
+                  >
+                    <CreditCard size={18} />
+                  </button>
+                )}
+                <button
+                  className="notification-btn"
+                  title="الإشعارات"
+                  aria-label="الإشعارات"
+                  onClick={() => setNotificationsOpen(!notificationsOpen)}
+                >
+                  <Bell size={20} />
+                  {alerts + supplierNotices.length + licNotices.length + policyNotices.length > 0 && <i />}
+                </button>
+                <div
+                  className="account-avatar overflow-hidden cursor-pointer"
+                  title="الملف التعريفي وهوية المنشأة"
+                  onClick={() => {
+                    if (canNav(actor, "settings")) navigate("settings");
+                  }}
+                >
+                  {actor.avatarUrl ? (
+                    <img src={actor.avatarUrl} alt="" className="w-full h-full object-cover" />
+                  ) : (
+                    actor.name.slice(0, 1)
+                  )}
+                </div>
+                <button
+                  className="icon-btn text-red-600 hover:bg-red-50 border border-transparent hover:border-red-200"
+                  title="تسجيل الخروج والعودة للواجهة العامة"
+                  aria-label="تسجيل الخروج"
+                  onClick={() => {
+                    setActor("guest");
+                    setPage("home");
+                    location.hash = "home";
+                    notify("تم تسجيل الخروج بنجاح.");
+                  }}
+                >
+                  <LogOut size={17} />
+                </button>
+              </>
             )}
-            <button
-              className="notification-btn"
-              title="الإشعارات"
-              aria-label="الإشعارات"
-              onClick={() => setNotificationsOpen(!notificationsOpen)}
-            >
-              <Bell size={20} />
-              {alerts + supplierNotices.length + licNotices.length + policyNotices.length > 0 && <i />}
-            </button>
-            <div
-              className="account-avatar overflow-hidden cursor-pointer"
-              title="الملف التعريفي وهوية المنشأة"
-              onClick={() => {
-                if (canNav(actor, "settings")) navigate("settings");
-              }}
-            >
-              {actor.avatarUrl ? (
-                <img src={actor.avatarUrl} alt="" className="w-full h-full object-cover" />
-              ) : (
-                actor.name.slice(0, 1)
-              )}
-            </div>
           </div>
         </header>
         {!isPendingApproval && actor.role !== "admin" && actor.role !== "guest" && mySub && (
@@ -377,45 +436,6 @@ export default function App() {
             }}
           />
         )}
-        <div className="demo-bar">
-          <span>
-            <span className="demo-dot" /> وضع التجربة المحلية — تبديل الحسابات
-            لا يمثل تسجيل دخول آمنًا
-          </span>
-          <label>
-            الحساب{" "}
-            <select
-              aria-label="تبديل الحساب التجريبي"
-              value={actor.id}
-              onChange={(e) => {
-                setActor(e.target.value);
-                setPage("home");
-                location.hash = "home";
-              }}
-            >
-              {state.accounts.map((a) => {
-                const b = state.branches.find((br) => br.id === a.branchId);
-                const sub = state.subscriptions?.find((s) => s.branchId === b?.id);
-                const isExp =
-                  sub && (sub.status === "expired" || daysLeft(sub.renewalDate) < 0);
-                return (
-                  <option key={a.id} value={a.id}>
-                    {a.name} • {roleNames[a.role]}
-                    {a.suspended
-                      ? " (مجمد لمخالفة)"
-                      : isExp
-                        ? " (🔒 اشتراك منتهي)"
-                        : isLicenseExpired(a)
-                          ? " (ترخيص منتهي)"
-                          : !a.verified && a.role !== "guest"
-                            ? " (قيد المراجعة)"
-                            : ""}
-                  </option>
-                );
-              })}
-            </select>
-          </label>
-        </div>
         {notificationsOpen && (
           <Modal title="الإشعارات وتنبيهات الامتثال" onClose={() => setNotificationsOpen(false)}>
             {!supplierNotices.length && !licNotices.length && !policyNotices.length && !alerts && <p>لا توجد تنبيهات مستحقة.</p>}
@@ -531,7 +551,7 @@ export default function App() {
               }}
             />
           ) : current === "home" ? (
-            <Home navigate={navigate} />
+            <Home navigate={navigate} onOpenLogin={() => setLoginOpen(true)} />
           ) : current === "dashboard" ? (
             <Dashboard navigate={navigate} />
           ) : current === "inventory" || current === "import" ? (
@@ -548,13 +568,94 @@ export default function App() {
             <Management mode={current as "settings"} />
           )}
         </main>
-        <footer className="app-footer">
-          <span>
-            © {new Date().getFullYear()} فارما لينك — تبادل دوائي منظم بين
-            المنشآت
-          </span>
-          <span>النسخة المحلية · لا توجد مدفوعات حقيقية</span>
-        </footer>
+        {current !== "home" && (
+          <footer className="app-footer">
+            <span>
+              © {new Date().getFullYear()} فارما لينك — تبادل دوائي منظم بين
+              المنشآت
+            </span>
+            <span>النسخة المحلية · لا توجد مدفوعات حقيقية</span>
+          </footer>
+        )}
+
+        {supportOpen && (
+          <Modal
+            title="مركز الدعم الفني والصيدلاني"
+            onClose={() => setSupportOpen(false)}
+          >
+            <div className="info-strip mb-4">
+              <Headphones size={18} />
+              <span>
+                فريق الدعم الفني متواجد لمساندتك في العمليات التشغيلية، الربط السحابي، والمناقلات الدوائية.
+              </span>
+            </div>
+            <div className="grid md:grid-cols-3 gap-3 mb-4">
+              <div className="border border-slate-200 rounded-xl p-3 bg-slate-50 text-center">
+                <Phone size={20} className="mx-auto text-teal-600 mb-1" />
+                <strong className="block text-xs text-slate-800">الهاتف الموحد</strong>
+                <span className="text-xs font-mono font-bold text-teal-700 block mt-1" dir="ltr">
+                  +966 11 400 9080
+                </span>
+                <small className="text-[11px] text-slate-500 block mt-1">السبت - الخميس (8 ص - 10 م)</small>
+              </div>
+
+              <div className="border border-slate-200 rounded-xl p-3 bg-slate-50 text-center">
+                <MessageSquare size={20} className="mx-auto text-teal-600 mb-1" />
+                <strong className="block text-xs text-slate-800">واتساب الدعم</strong>
+                <span className="text-xs font-mono font-bold text-teal-700 block mt-1" dir="ltr">
+                  +966 55 900 7060
+                </span>
+                <small className="text-[11px] text-slate-500 block mt-1">رد فوري واستفسارات</small>
+              </div>
+
+              <div className="border border-slate-200 rounded-xl p-3 bg-slate-50 text-center">
+                <Mail size={20} className="mx-auto text-teal-600 mb-1" />
+                <strong className="block text-xs text-slate-800">البريد المعتمد</strong>
+                <span className="text-xs font-mono font-bold text-teal-700 block mt-1">
+                  support@pharmalink.local
+                </span>
+                <small className="text-[11px] text-slate-500 block mt-1">المراسلات الرسمية والامتثال</small>
+              </div>
+            </div>
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                notify("تم إرسال تذكرة الدعم بنجاح! سيتابع معك فريقنا الصيدلاني فوراً.");
+                setSupportOpen(false);
+              }}
+            >
+              <div className="field mb-3">
+                <span>موضوع التذكرة / الاستفسار</span>
+                <input
+                  type="text"
+                  placeholder="مثال: استفسار حول مناقلة رقم #TR-xxx أو مهلة مرتجع"
+                  required
+                />
+              </div>
+              <div className="field mb-4">
+                <span>تفاصيل المشكلة أو الملاحظة</span>
+                <textarea
+                  rows={3}
+                  placeholder="يرجى كتابة تفاصيل المشكلة وسيقوم فريق الدعم بالتحقق منها..."
+                  required
+                />
+              </div>
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  className="button ghost text-sm"
+                  onClick={() => setSupportOpen(false)}
+                >
+                  إغلاق
+                </button>
+                <button type="submit" className="button primary text-sm">
+                  إرسال تذكرة الدعم
+                </button>
+              </div>
+            </form>
+          </Modal>
+        )}
 
         <WelcomeOnboardingModal
           isOpen={welcomeOpen}
@@ -585,6 +686,24 @@ export default function App() {
           onSelectPlan={(_planId, _cycle) => {
             setWelcomeOpen(false);
             navigate("subscriptions");
+          }}
+        />
+
+        <LoginModal
+          isOpen={loginOpen}
+          onClose={() => setLoginOpen(false)}
+          onSuccess={(role) => {
+            const next =
+              role === "admin"
+                ? "verification"
+                : role === "guest" || role === "pending"
+                  ? "home"
+                  : "dashboard";
+            navigate(next);
+          }}
+          onOpenRegister={() => {
+            navigate("home");
+            window.dispatchEvent(new CustomEvent("pharmalink-open-register"));
           }}
         />
       </div>

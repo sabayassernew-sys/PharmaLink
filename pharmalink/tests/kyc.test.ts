@@ -243,4 +243,72 @@ describe("بوابة الامتثال والتراخيص والتحقق الصي
       }),
     ).toThrow("تحديد خصم الصنف من صلاحية إدارة السلسلة أو الصيدلية المستقلة");
   });
+
+  it("يسجل منشأة بكلمة مرور ونوع كيان ويثبتها في الحساب", () => {
+    let s = createSeed();
+    s = transact(s, "guest", {
+      type: "register",
+      name: "صيدلية التاج الحديثة",
+      email: "taj@pharmalink.ye",
+      password: "secretPassword123",
+      license: "LIC-TAJ-771",
+      pharmacistName: "د. سامي مراد",
+      facilityType: "independent",
+      licenseExpiry: "2027-10-10",
+    });
+
+    const acc = s.accounts.find((a) => a.email === "taj@pharmalink.ye")!;
+    expect(acc).toBeDefined();
+    expect(acc.password).toBe("secretPassword123");
+    expect(acc.facilityType).toBe("independent");
+    expect(acc.role).toBe("pending");
+  });
+
+  it("يربط فرعاً جديداً بسلسلة قائمة ويعتمده مدير المنصة تحت مظلة السلسلة ومناقلاتها", () => {
+    let s = createSeed();
+    const existingChain = s.chains[0]; // مجموعة الشفاء
+    expect(existingChain).toBeDefined();
+
+    // 1. تسجيل فرع جديد تابع للسلسلة
+    s = transact(s, "guest", {
+      type: "register",
+      name: "فرع صيدلية الستين - الشفاء",
+      email: "sitteen@shifa.local",
+      password: "passBranch123",
+      license: "LIC-SITTEEN-889",
+      facilityType: "agency_branch",
+      chainId: existingChain.id,
+      pharmacistName: "د. حسام قائد",
+      practiceLicense: "PRAC-SAN-9988",
+      licenseExpiry: "2028-01-01",
+    });
+
+    const pendingBranch = s.accounts.find((a) => a.email === "sitteen@shifa.local")!;
+    expect(pendingBranch.facilityType).toBe("agency_branch");
+    expect(pendingBranch.chainId).toBe(existingChain.id);
+    expect(pendingBranch.verified).toBe(false);
+
+    // 2. مدير المنصة يعتمد الطلب بعد مراجعة التراخيص
+    s = transact(s, "admin", {
+      type: "verify",
+      id: pendingBranch.id,
+      approve: true,
+      licenseExpiry: "2028-01-01",
+    });
+
+    const approvedBranch = s.accounts.find((a) => a.id === pendingBranch.id)!;
+    expect(approvedBranch.verified).toBe(true);
+    expect(approvedBranch.role).toBe("agency_branch");
+    expect(approvedBranch.chainId).toBe(existingChain.id);
+    expect(approvedBranch.branchId).toBeDefined();
+
+    // الفرع تم إنشاؤه في جدول الفروع التابعة للسلسلة
+    const createdBranch = s.branches.find((b) => b.id === approvedBranch.branchId)!;
+    expect(createdBranch).toBeDefined();
+    expect(createdBranch.chainId).toBe(existingChain.id);
+
+    // الفرع أصبح عضواً مؤهلاً للمناقلات وتصفح بورصة التبادل
+    expect(canNav(approvedBranch, "transfers")).toBe(true);
+    expect(canNav(approvedBranch, "board")).toBe(true);
+  });
 });

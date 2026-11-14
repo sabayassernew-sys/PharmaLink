@@ -23,6 +23,7 @@ export interface Account {
   verified: boolean;
   rejection?: string;
   email?: string;
+  password?: string;
   license?: string;
   pharmacistName?: string;
   practiceLicense?: string;

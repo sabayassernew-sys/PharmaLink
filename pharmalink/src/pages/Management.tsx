@@ -686,6 +686,18 @@ export function Management({
                           <span className="text-slate-500 font-bold block">ترخيص مزاولة المهنة للصيدلي:</span>
                           <strong className="text-slate-700 font-mono">{inspectAccount.practiceLicense || "لم يُسجل (اختياري)"}</strong>
                         </div>
+                        <div>
+                          <span className="text-slate-500 font-bold block">تاريخ انتهاء سريان ترخيص المنشأة:</span>
+                          <strong className="text-slate-700 font-mono">{inspectAccount.licenseExpiry || "—"}</strong>
+                        </div>
+                        <div>
+                          <span className="text-slate-500 font-bold block">رقم السجل التجاري:</span>
+                          <strong className="text-slate-700 font-mono">{inspectAccount.commercialRegister || "—"}</strong>
+                        </div>
+                        <div className="col-span-2">
+                          <span className="text-slate-500 font-bold block">الرقم الضريبي:</span>
+                          <strong className="text-slate-700 font-mono">{inspectAccount.taxNumber || "—"}</strong>
+                        </div>
                       </div>
 
                       {!inspectAccount.verified && (

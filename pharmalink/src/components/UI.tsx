@@ -115,12 +115,14 @@ export function Modal({
   onClose,
   wide = false,
   isConfirm = false,
+  className = "",
 }: {
   title: string;
   children: ReactNode;
   onClose: () => void;
   wide?: boolean;
   isConfirm?: boolean;
+  className?: string;
 }) {
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -144,7 +146,7 @@ export function Modal({
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className={`modal ${wide ? "modal-wide" : ""} ${isConfirm ? "confirm-modal-box" : ""}`}>
+      <div className={`modal ${wide ? "modal-wide" : ""} ${isConfirm ? "confirm-modal-box" : ""} ${className}`}>
         <div className="modal-head">
           <h2>{title}</h2>
           <button aria-label="إغلاق" onClick={onClose} className="icon-btn">
