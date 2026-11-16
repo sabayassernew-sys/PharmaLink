@@ -1,6 +1,6 @@
 import { useState } from "react";
 import {
-  LogIn,
+  ArrowLeft,
   Mail,
   Eye,
   EyeOff,
@@ -107,9 +107,9 @@ export function LoginModal({
               onChange={(e) => setEmail(e.target.value)}
               required
               autoFocus
-              className="w-full text-left pr-3 pl-10 h-10 text-sm rounded-lg"
+              className="w-full text-left pl-3 pr-10 h-10 text-sm rounded-lg"
             />
-            <Mail size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+            <Mail size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
           </div>
         </div>
 
@@ -137,9 +137,9 @@ export function LoginModal({
         </div>
 
         <div className="pt-2">
-          <Button type="submit" className="w-full justify-center h-10 text-sm font-bold shadow-sm">
-            <LogIn size={16} />
-            تسجيل الدخول
+          <Button type="submit" className="w-full justify-center h-10 text-sm font-bold shadow-sm flex items-center gap-2">
+            <span>تسجيل الدخول</span>
+            <ArrowLeft size={16} />
           </Button>
         </div>
       </form>

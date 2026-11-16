@@ -31,9 +31,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
       return createSeed();
     }
   });
-  const [id, setId] = useState(
-    () => sessionStorage.getItem("pharmalink-account") || "branch-hadda",
-  );
+  const [id, setId] = useState(() => {
+    const saved = sessionStorage.getItem("pharmalink-account");
+    if (!saved || saved === "branch-hadda") {
+      sessionStorage.setItem("pharmalink-account", "guest");
+      return "guest";
+    }
+    return saved;
+  });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
