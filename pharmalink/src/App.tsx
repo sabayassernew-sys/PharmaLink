@@ -225,7 +225,9 @@ export default function App() {
           </div>
           <div>
             <strong>{branch?.name || actor.name}</strong>
-            <small>{roleNames[actor.role]}</small>
+            <small className={actor.rejection ? "text-red-400 font-bold" : ""}>
+              {actor.rejection ? "طلب مرفوض من الإدارة" : roleNames[actor.role]}
+            </small>
           </div>
           <ChevronDown size={14} />
         </div>
@@ -528,7 +530,7 @@ export default function App() {
               isNewAccount={!mySub}
               onNavigateToSubscriptions={() => navigate("subscriptions")}
               onActivateTrial={async () => {
-                const targetBranch = myBranch || branch;
+                const targetBranch = myBranch || branch || state.branches.find((b) => b.id === actor.branchId);
                 if (targetBranch) {
                   const trialPlanId = actor.role === "agency_master" ? "plan_chains" : "plan_pro";
                   const ok = await run({
@@ -546,8 +548,23 @@ export default function App() {
                   notify("تم اعتماد الفترة التجريبية المجانية (14 يوماً) لحسابك");
                 }
               }}
-              onSelectPlan={(_planId, _cycle) => {
-                navigate("subscriptions");
+              onSelectPlan={async (planId, cycle) => {
+                const targetBranch = myBranch || branch || state.branches.find((b) => b.id === actor.branchId);
+                if (targetBranch) {
+                  const ok = await run({
+                    type: "assignSubscription",
+                    branchId: targetBranch.id,
+                    planId,
+                    billingCycle: cycle,
+                    paymentMethod: "bank_transfer",
+                    notes: `اشتراك في باقة ${cycle === "annual" ? "سنوية" : "شهرية"}`,
+                  });
+                  if (ok) {
+                    notify("تم تفعيل وتثبيت باقة الاشتراك بنجاح 🎉");
+                  }
+                } else {
+                  navigate("subscriptions");
+                }
               }}
             />
           ) : current === "home" ? (
@@ -683,9 +700,24 @@ export default function App() {
               setWelcomeOpen(false);
             }
           }}
-          onSelectPlan={(_planId, _cycle) => {
+          onSelectPlan={async (planId, cycle) => {
             setWelcomeOpen(false);
-            navigate("subscriptions");
+            const targetBranch = myBranch || branch || state.branches.find((b) => b.id === actor.branchId);
+            if (targetBranch) {
+              const ok = await run({
+                type: "assignSubscription",
+                branchId: targetBranch.id,
+                planId,
+                billingCycle: cycle,
+                paymentMethod: "bank_transfer",
+                notes: `اشتراك في باقة ${cycle === "annual" ? "سنوية" : "شهرية"}`,
+              });
+              if (ok) {
+                notify("تم تفعيل وتثبيت باقة الاشتراك بنجاح 🎉");
+              }
+            } else {
+              navigate("subscriptions");
+            }
           }}
         />
 

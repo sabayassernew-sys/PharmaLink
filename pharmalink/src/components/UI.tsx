@@ -235,6 +235,8 @@ export function Field({
   required = true,
   min,
   max,
+  minLength,
+  maxLength,
   placeholder,
   step,
 }: {
@@ -245,6 +247,8 @@ export function Field({
   required?: boolean;
   min?: number;
   max?: number;
+  minLength?: number;
+  maxLength?: number;
   placeholder?: string;
   step?: string | number;
 }) {
@@ -258,6 +262,8 @@ export function Field({
         required={required}
         min={min}
         max={max}
+        minLength={minLength}
+        maxLength={maxLength}
         placeholder={placeholder}
         step={step}
       />

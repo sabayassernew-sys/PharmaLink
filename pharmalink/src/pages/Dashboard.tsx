@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { supplierAlerts } from "../domain/notifications";
 import {
   ArrowUpLeft,
@@ -10,6 +11,8 @@ import {
   Plus,
   Upload,
   CheckCircle2,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import { useApp } from "../context";
 import {
@@ -31,6 +34,7 @@ import {
 } from "../components/UI";
 export function Dashboard({ navigate }: { navigate: (s: string) => void }) {
   const { state, actor } = useApp();
+  const [showAllNotices, setShowAllNotices] = useState(false);
   const items = visibleItems(state, actor),
     transfers = visibleTransfers(state, actor);
   const pending = state.sales.filter(
@@ -145,11 +149,41 @@ export function Dashboard({ navigate }: { navigate: (s: string) => void }) {
       </div>
       {notices.length > 0 && (
         <Card className="mb-5">
-          <SectionTitle
-            title="تنبيهات مرتجعات الموردين"
-            description="حسب المواعيد المسجلة، وليست ضمانًا لقبول المورد"
-          />
-          {notices.map((n) => (
+          <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-2 flex-wrap gap-2">
+            <div>
+              <h3 className="m-0 text-base font-bold text-slate-800">
+                تنبيهات مرتجعات الموردين
+              </h3>
+              <p className="text-xs text-slate-500 m-0">
+                حسب المواعيد المسجلة، وليست ضمانًا لقبول المورد
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="badge warning text-xs font-bold">
+                {notices.length} تنبيه
+              </span>
+              {notices.length > 3 && (
+                <button
+                  type="button"
+                  className="text-xs font-bold text-teal-700 hover:text-teal-800 bg-teal-50 hover:bg-teal-100/70 border border-teal-200/60 px-2.5 py-1 rounded-lg transition-colors cursor-pointer flex items-center gap-1"
+                  onClick={() => setShowAllNotices(!showAllNotices)}
+                >
+                  {showAllNotices ? (
+                    <>
+                      <ChevronUp size={14} />
+                      <span>عرض أقل</span>
+                    </>
+                  ) : (
+                    <>
+                      <ChevronDown size={14} />
+                      <span>عرض الكل ({notices.length})</span>
+                    </>
+                  )}
+                </button>
+              )}
+            </div>
+          </div>
+          {(showAllNotices ? notices : notices.slice(0, 3)).map((n) => (
             <button
               className="task-row w-full text-right"
               key={n.item.id}
@@ -171,6 +205,35 @@ export function Dashboard({ navigate }: { navigate: (s: string) => void }) {
               </div>
             </button>
           ))}
+          {notices.length > 3 && (
+            <div className="pt-3 border-t border-slate-100 flex items-center justify-between mt-2 text-xs flex-wrap gap-2">
+              <button
+                type="button"
+                className="font-bold text-teal-700 hover:text-teal-800 flex items-center gap-1 transition-colors cursor-pointer"
+                onClick={() => setShowAllNotices(!showAllNotices)}
+              >
+                {showAllNotices ? (
+                  <>
+                    <ChevronUp size={14} />
+                    <span>عرض أول 3 تنبيهات فقط</span>
+                  </>
+                ) : (
+                  <>
+                    <ChevronDown size={14} />
+                    <span>عرض كافة التنبيهات المتبقية (+{notices.length - 3})</span>
+                  </>
+                )}
+              </button>
+              <button
+                type="button"
+                className="text-slate-500 hover:text-slate-800 flex items-center gap-1 font-medium transition-colors cursor-pointer"
+                onClick={() => navigate("returns")}
+              >
+                <span>حاسبة وجدول مرتجعات الموردين</span>
+                <ArrowUpLeft size={13} />
+              </button>
+            </div>
+          )}
         </Card>
       )}
       <div className="stats-grid">

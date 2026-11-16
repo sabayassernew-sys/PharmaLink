@@ -516,30 +516,40 @@ export function transact(
           actor.rejection,
         "إعادة التقديم للطلب المرفوض",
       );
+      check(Boolean(command.name && command.name.trim()), "يرجى إدخال اسم المنشأة الصيدلانية");
+      check(Boolean(command.license && command.license.trim()), "يرجى إدخال رقم ترخيص فتح المنشأة الصيدلانية");
       check(
-        command.name.trim() &&
-          /^\S+@\S+\.\S+$/.test(command.email) &&
-          command.license.trim(),
-        "أكمل البيانات",
+        Boolean(command.email && /^\S+@\S+$/.test(command.email.trim())),
+        "يرجى إدخال بريد إلكتروني صحيح",
       );
+      const normalizedEmail = command.email.trim().toLowerCase();
       check(
-        !s.accounts.some((a) => a.id !== actor.id && a.email === command.email),
-        "البريد مستخدم",
+        !s.accounts.some(
+          (a) => a.id !== actor.id && a.email && a.email.trim().toLowerCase() === normalizedEmail,
+        ),
+        "البريد الإلكتروني مسجل مسبقاً لمنشأة أخرى",
       );
+      if (command.password && command.password.trim()) {
+        const pwd = command.password.trim();
+        check(
+          pwd.length >= 6 && pwd.length <= 32,
+          "يجب أن تتكون كلمة المرور من 6 إلى 32 خانة",
+        );
+      }
       Object.assign(actor, {
-        name: command.name,
-        email: command.email,
+        name: command.name.trim(),
+        email: command.email.trim(),
         ...(command.password && command.password.trim() ? { password: command.password.trim() } : {}),
-        license: command.license,
-        pharmacistName: command.pharmacistName,
-        practiceLicense: command.practiceLicense,
-        phone: command.phone,
-        city: command.city,
-        address: command.address,
+        license: command.license.trim(),
+        pharmacistName: command.pharmacistName?.trim(),
+        practiceLicense: command.practiceLicense?.trim(),
+        phone: command.phone?.trim(),
+        city: command.city?.trim(),
+        address: command.address?.trim(),
         facilityType: command.facilityType || actor.facilityType || "independent",
         chainId: command.chainId !== undefined ? command.chainId : actor.chainId,
-        commercialRegister: command.commercialRegister,
-        taxNumber: command.taxNumber,
+        commercialRegister: command.commercialRegister?.trim(),
+        taxNumber: command.taxNumber?.trim(),
         licenseExpiry: command.licenseExpiry,
         documents: command.documents && command.documents.length ? command.documents : actor.documents,
         rejection: undefined,
@@ -549,19 +559,28 @@ export function transact(
     }
     case "register": {
       check(actor.role === "guest", "التسجيل من حساب الزائر");
+      check(Boolean(command.name && command.name.trim()), "يرجى إدخال اسم المنشأة الصيدلانية");
+      check(Boolean(command.license && command.license.trim()), "يرجى إدخال رقم ترخيص فتح المنشأة الصيدلانية");
       check(
-        command.name.trim() &&
-          /^\S+@\S+\.\S+$/.test(command.email) &&
-          command.license.trim(),
-        "أكمل الاسم والبريد ورقم الترخيص",
+        Boolean(command.email && /^\S+@\S+$/.test(command.email.trim())),
+        "يرجى إدخال بريد إلكتروني صحيح",
       );
-      check(!s.accounts.some((a) => a.email === command.email), "البريد مسجل");
+      const normalizedEmail = command.email.trim().toLowerCase();
+      check(
+        !s.accounts.some((a) => a.email && a.email.trim().toLowerCase() === normalizedEmail),
+        "البريد الإلكتروني مسجل مسبقاً لمنشأة أخرى",
+      );
+      const password = command.password ? command.password.trim() : "123456";
+      check(
+        password.length >= 6 && password.length <= 32,
+        "يجب أن تتكون كلمة المرور من 6 إلى 32 خانة",
+      );
       const a: Account = {
         id: uid("account"),
         name: command.name.trim(),
-        email: command.email,
-        password: command.password?.trim() || "123456",
-        license: command.license,
+        email: command.email.trim(),
+        password,
+        license: command.license.trim(),
         pharmacistName: command.pharmacistName?.trim(),
         practiceLicense: command.practiceLicense?.trim(),
         phone: command.phone?.trim(),
@@ -1670,6 +1689,39 @@ export function transact(
           a.role = "agency_master";
           a.verified = true;
           a.rejection = undefined;
+
+          // Grant chain active 14-day trial
+          s.subscriptions ??= [];
+          const chainSubId = uid("sub");
+          const chainTrialRenewal = new Date(Date.now() + 14 * 86400000).toISOString();
+          s.subscriptions.push({
+            id: chainSubId,
+            chainId,
+            planId: "plan_chains",
+            billingCycle: "monthly",
+            status: "trial",
+            amount: 0,
+            startDate: now(),
+            renewalDate: chainTrialRenewal,
+            autoRenew: true,
+            paymentMethod: "free_trial",
+            notes: "فترة تجريبية مجانية 14 يوماً بمناسبة اعتماد السلسلة",
+          });
+          s.subscriptionInvoices ??= [];
+          s.subscriptionInvoices.push({
+            id: uid("inv_sub"),
+            subscriptionId: chainSubId,
+            chainId,
+            planId: "plan_chains",
+            amount: 0,
+            billingCycle: "monthly",
+            paidAt: now(),
+            periodStart: now(),
+            periodEnd: chainTrialRenewal,
+            paymentMethod: "free_trial",
+            reference: "SYS-TRIAL-GRANT",
+            status: "paid",
+          });
         } else if (a.facilityType === "agency_branch" && a.chainId) {
           const id = uid("branch");
           s.branches.push({ id, name: a.name, city: a.city || "صنعاء", chainId: a.chainId, active: true });
@@ -1686,6 +1738,39 @@ export function transact(
           a.role = "independent";
           a.verified = true;
           a.rejection = undefined;
+
+          // Grant independent pharmacy active 14-day trial
+          s.subscriptions ??= [];
+          const indSubId = uid("sub");
+          const indTrialRenewal = new Date(Date.now() + 14 * 86400000).toISOString();
+          s.subscriptions.push({
+            id: indSubId,
+            branchId: id,
+            planId: "plan_pro",
+            billingCycle: "monthly",
+            status: "trial",
+            amount: 0,
+            startDate: now(),
+            renewalDate: indTrialRenewal,
+            autoRenew: true,
+            paymentMethod: "free_trial",
+            notes: "فترة تجريبية مجانية 14 يوماً بمناسبة اعتماد الصيدلية",
+          });
+          s.subscriptionInvoices ??= [];
+          s.subscriptionInvoices.push({
+            id: uid("inv_sub"),
+            subscriptionId: indSubId,
+            branchId: id,
+            planId: "plan_pro",
+            amount: 0,
+            billingCycle: "monthly",
+            paidAt: now(),
+            periodStart: now(),
+            periodEnd: indTrialRenewal,
+            paymentMethod: "free_trial",
+            reference: "SYS-TRIAL-GRANT",
+            status: "paid",
+          });
         }
         if (command.licenseExpiry) a.licenseExpiry = command.licenseExpiry;
       } else {
@@ -2044,6 +2129,11 @@ export function transact(
         };
         s.subscriptions.push(sub);
       }
+
+      // Supersede any duplicate invoice for the same branch on the same day
+      s.subscriptionInvoices = s.subscriptionInvoices.filter(
+        (inv) => !(inv.branchId === command.branchId && inv.paidAt && inv.paidAt.slice(0, 10) === startDate.slice(0, 10)),
+      );
 
       // Add Invoice
       const invId = uid("inv_sub");

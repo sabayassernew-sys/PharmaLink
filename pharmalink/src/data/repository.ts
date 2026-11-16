@@ -138,13 +138,97 @@ export class LocalRepository implements Repository {
         state.subscriptionPlans = seed.subscriptionPlans;
         modified = true;
       }
-      if (!state.subscriptions || state.subscriptions.length === 0) {
-        state.subscriptions = seed.subscriptions;
-        modified = true;
+      state.subscriptions = state.subscriptions && state.subscriptions.length > 0 ? state.subscriptions : (seed.subscriptions || []);
+      const subs = state.subscriptions;
+      // Ensure every verified pharmacy/branch has an active subscription
+      for (const branch of state.branches) {
+        const hasSub = subs.some(
+          (s) => s.branchId === branch.id || (branch.chainId && s.chainId === branch.chainId),
+        );
+        if (!hasSub) {
+          const renewalDate = new Date(Date.now() + 14 * 86400000).toISOString();
+          subs.push({
+            id: "sub-" + branch.id,
+            branchId: branch.id,
+            chainId: branch.chainId,
+            planId: branch.chainId ? "plan_chains" : "plan_pro",
+            billingCycle: "monthly",
+            status: "trial",
+            amount: 0,
+            startDate: new Date().toISOString(),
+            renewalDate,
+            autoRenew: true,
+            paymentMethod: "free_trial",
+            notes: "فترة تجريبية مجانية 14 يوماً معتمدة للمنشأة",
+          });
+          modified = true;
+        }
       }
       if (!state.subscriptionInvoices || state.subscriptionInvoices.length === 0) {
         state.subscriptionInvoices = seed.subscriptionInvoices;
         modified = true;
+      } else {
+        const initialCount = state.subscriptionInvoices.length;
+        // 1. Filter out random test entries generated during previous manual trials
+        state.subscriptionInvoices = state.subscriptionInvoices.filter((inv) => {
+          const ref = String(inv.reference || "");
+          if (
+            ref.includes("اعتماد_تجريبي") ||
+            ref.includes("سلطة_النظام") ||
+            ref.includes("dummy") ||
+            ref.includes("TEST")
+          ) {
+            return false;
+          }
+          return true;
+        });
+
+        // 2. Remove duplicate invoices on the exact same date for the same branch
+        const seen = new Set<string>();
+        state.subscriptionInvoices = state.subscriptionInvoices.filter((inv) => {
+          const datePart = inv.paidAt ? inv.paidAt.slice(0, 10) : "";
+          const target = inv.branchId || inv.chainId || "";
+          const key = `${target}_${datePart}`;
+          if (seen.has(key)) {
+            return false;
+          }
+          seen.add(key);
+          return true;
+        });
+
+        // 3. Ensure clean initial trial invoice exists for pharm_01
+        const hasAmalTrial = state.subscriptionInvoices.some(
+          (inv) =>
+            inv.branchId === "pharm_01" &&
+            (inv.amount === 0 || inv.paymentMethod === "free_trial"),
+        );
+        if (!hasAmalTrial) {
+          const trialInv = (seed.subscriptionInvoices || []).find(
+            (inv) => inv.id === "inv-sub-trial-amal",
+          );
+          if (trialInv) {
+            state.subscriptionInvoices.unshift(trialInv);
+            modified = true;
+          }
+        }
+
+        // 4. Ensure valid active annual subscription invoice exists for pharm_01
+        const hasAmalPaid = state.subscriptionInvoices.some(
+          (inv) => inv.branchId === "pharm_01" && inv.amount > 0,
+        );
+        if (!hasAmalPaid) {
+          const paidInv = (seed.subscriptionInvoices || []).find(
+            (inv) => inv.id === "inv-sub-02",
+          );
+          if (paidInv) {
+            state.subscriptionInvoices.push(paidInv);
+            modified = true;
+          }
+        }
+
+        if (state.subscriptionInvoices.length !== initialCount) {
+          modified = true;
+        }
       }
       if (modified) {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(state));

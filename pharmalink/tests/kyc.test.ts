@@ -311,4 +311,42 @@ describe("بوابة الامتثال والتراخيص والتحقق الصي
     expect(canNav(approvedBranch, "transfers")).toBe(true);
     expect(canNav(approvedBranch, "board")).toBe(true);
   });
+
+  it("يفرض شروط طول كلمة المرور (بين 6 و 32 خانة) عند التسجيل", () => {
+    const s = createSeed();
+
+    // أقل من 6 خانات
+    expect(() =>
+      transact(s, "guest", {
+        type: "register",
+        name: "صيدلية تجريبية",
+        email: "short-pass@example.test",
+        password: "123",
+        license: "LIC-TEST-001",
+      }),
+    ).toThrow("يجب أن تتكون كلمة المرور من 6 إلى 32 خانة");
+
+    // أكثر من 32 خانة
+    expect(() =>
+      transact(s, "guest", {
+        type: "register",
+        name: "صيدلية تجريبية",
+        email: "long-pass@example.test",
+        password: "a".repeat(33),
+        license: "LIC-TEST-002",
+      }),
+    ).toThrow("يجب أن تتكون كلمة المرور من 6 إلى 32 خانة");
+
+    // كلمة مرور صالحة (بين 6 و 32)
+    const valid = transact(s, "guest", {
+      type: "register",
+      name: "صيدلية تجريبية ناجحة",
+      email: "valid-pass@example.test",
+      password: "securePassword123",
+      license: "LIC-TEST-003",
+    });
+    const acc = valid.accounts.find((a) => a.email === "valid-pass@example.test");
+    expect(acc).toBeDefined();
+    expect(acc?.password).toBe("securePassword123");
+  });
 });

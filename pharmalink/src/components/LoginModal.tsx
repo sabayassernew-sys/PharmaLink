@@ -7,6 +7,7 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { useApp } from "../context";
+import { isLicenseExpired } from "../domain/access";
 import { Button, Modal } from "./UI";
 
 interface LoginModalProps {
@@ -40,20 +41,24 @@ export function LoginModal({
     );
 
     if (!foundAccount) {
-      setErrorMsg("البريد الإلكتروني أو كلمة المرور غير صحيحة.");
+      setErrorMsg("البريد الإلكتروني المدخل غير مسجل في النظام.");
       return;
     }
 
     const expectedPassword = foundAccount.password || "123456";
-    if (password !== expectedPassword) {
-      setErrorMsg("البريد الإلكتروني أو كلمة المرور غير صحيحة.");
+    if (password.trim() !== expectedPassword) {
+      setErrorMsg("كلمة المرور غير صحيحة، يرجى التأكد وإعادة المحاولة.");
       return;
     }
 
-    // Pending account
-    if (foundAccount.role === "pending") {
+    // Pending or unverified account
+    if (foundAccount.role === "pending" || !foundAccount.verified) {
       setActor(foundAccount.id);
-      notify("تم تسجيل الدخول: حساب المنشأة بانتظار مراجعة واعتماد التراخيص.");
+      if (foundAccount.rejection) {
+        notify(`تنبيه: تم رفض طلب تسجيل المنشأة من قبل الإدارة: ${foundAccount.rejection}`);
+      } else {
+        notify("تم تسجيل الدخول: حساب المنشأة بانتظار مراجعة واعتماد التراخيص.");
+      }
       onSuccess(foundAccount.role);
       onClose();
       return;
@@ -62,6 +67,12 @@ export function LoginModal({
     // Suspended account
     if (foundAccount.suspended) {
       setErrorMsg(`الحساب موقوف: ${foundAccount.suspensionReason || "يرجى مراجعة إدارة المنصة"}`);
+      return;
+    }
+
+    // Expired license check
+    if (isLicenseExpired(foundAccount)) {
+      setErrorMsg(`انتهت صلاحية ترخيص المنشأة الصيدلانية (${foundAccount.licenseExpiry || ""}). يرجى تجديد التراخيص ومراجعة الإدارة.`);
       return;
     }
 
@@ -89,9 +100,9 @@ export function LoginModal({
       </div>
 
       {errorMsg && (
-        <div className="notice danger mb-4 flex items-center gap-2 text-xs py-2.5 px-3 rounded-lg">
+        <div className="notice danger mb-4 flex items-center gap-2 text-xs py-2.5 px-3 rounded-lg border border-red-200 bg-red-50/90 text-right">
           <AlertCircle size={16} className="text-red-600 shrink-0" />
-          <span>{errorMsg}</span>
+          <span className="font-bold text-red-900">{errorMsg}</span>
         </div>
       )}
 
@@ -104,7 +115,10 @@ export function LoginModal({
               dir="ltr"
               placeholder="name@pharmacy.local"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={(e) => {
+                setEmail(e.target.value);
+                if (errorMsg) setErrorMsg("");
+              }}
               required
               autoFocus
               className="w-full text-left pl-3 pr-10 h-10 text-sm rounded-lg"
@@ -121,7 +135,10 @@ export function LoginModal({
               dir="ltr"
               placeholder="••••••••"
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              onChange={(e) => {
+                setPassword(e.target.value);
+                if (errorMsg) setErrorMsg("");
+              }}
               required
               className="w-full text-left pl-3 pr-10 h-10 text-sm rounded-lg"
             />

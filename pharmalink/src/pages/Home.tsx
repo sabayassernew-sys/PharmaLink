@@ -5,6 +5,8 @@ import {
   ArrowRightLeft,
   ShieldCheck,
   AlertTriangle,
+  AlertCircle,
+  ShieldAlert,
   ScanSearch,
   Clock,
   Building2,
@@ -83,6 +85,55 @@ export function Home({
 
   return (
     <div className="landing-wrapper">
+      {/* 1. قرار الإدارة الرسمي بشأن طلب المنشأة (تصميم رسمي، أنيق ومختصر) */}
+      {actor.rejection && actor.role !== "guest" && (
+        <div className="mb-6 rounded-xl border border-slate-200 bg-white p-4 sm:p-5 shadow-xs text-right border-r-4 border-r-red-600">
+          <div className="flex items-center justify-between gap-4 flex-wrap sm:flex-nowrap">
+            <div className="flex items-start sm:items-center gap-3">
+              <div className="w-10 h-10 rounded-lg bg-red-50 text-red-600 flex items-center justify-center shrink-0 border border-red-100">
+                <ShieldAlert size={22} />
+              </div>
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="badge danger">طلب غير معتمد</span>
+                  <h3 className="text-sm sm:text-base font-bold text-slate-900 m-0">
+                    قرار إدارة المنصة بشأن طلب التسجيل
+                  </h3>
+                </div>
+                <div className="mt-2 text-xs sm:text-sm text-slate-700 font-medium bg-red-50/60 border border-red-100 rounded-lg px-3 py-1.5 inline-flex items-center gap-2 flex-wrap">
+                  <span className="text-red-800 font-bold">سبب عدم الاعتماد:</span>
+                  <span className="text-slate-800 font-semibold">{actor.rejection}</span>
+                </div>
+              </div>
+            </div>
+
+            <Button
+              variant="secondary"
+              className="shrink-0 !h-9 !px-3.5 !text-xs !font-bold flex items-center gap-1.5 border-slate-200 text-slate-700 hover:bg-slate-50"
+              onClick={() => setInquiryModal(true)}
+            >
+              <Headphones size={14} />
+              التواصل مع الإدارة
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* 2. شريط التنبيه عند انتظار المراجعة الأولية */}
+      {(actor.role === "pending" || !actor.verified) && !actor.rejection && actor.role !== "guest" && (
+        <div className="mb-6 p-4 rounded-2xl border border-teal-200 bg-teal-50/80 shadow-xs flex items-start gap-3 text-right">
+          <ShieldCheck size={22} className="text-teal-700 shrink-0 mt-0.5" />
+          <div>
+            <strong className="text-teal-900 text-sm block mb-0.5">
+              طلب تسجيل المنشأة قيد المراجعة والتدقيق الإداري:
+            </strong>
+            <p className="text-xs text-teal-800 m-0 leading-relaxed">
+              يجري حالياً فحص التراخيص والبيانات المرفقة من قبل إدارة المنصة قبل تفعيل مساحة العمل.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Hero Section */}
       <section className="landing-hero-card">
         <div className="landing-hero-badge">
@@ -119,12 +170,21 @@ export function Home({
                 طلب تسجيل منشأة (KYC)
               </Button>
             </>
+          ) : actor.rejection ? (
+            <Button
+              variant="secondary"
+              className="!border-red-300 !text-red-700 hover:!bg-red-50 font-bold flex items-center gap-2 shadow-xs"
+              onClick={() => setInquiryModal(true)}
+            >
+              <ShieldAlert size={17} className="text-red-600" />
+              طلب غير معتمد — مراجعة الإدارة
+            </Button>
           ) : (
             <Button
-              disabled={suspended || actor.role === "pending"}
+              disabled={suspended || actor.role === "pending" || !actor.verified}
               onClick={() => navigate("dashboard")}
             >
-              {actor.role === "pending"
+              {actor.role === "pending" || !actor.verified
                 ? "الطلب قيد مراجعة وتدقيق الإدارة"
                 : suspended
                   ? "الحساب موقوف حالياً"
@@ -236,16 +296,6 @@ export function Home({
         </div>
       )}
 
-      {actor.role === "pending" && actor.rejection && (
-        <div className="notice danger mt-5 flex justify-between items-center">
-          <div>
-            <strong>لم يُعتمد طلب التسجيل:</strong> {actor.rejection}
-          </div>
-          <Button variant="secondary" onClick={() => setRegister(true)}>
-            تصحيح بيانات المنشأة والتراخيص وإعادة التقديم
-          </Button>
-        </div>
-      )}
 
       {/* Problem vs Solution Section */}
       <section className="landing-section" id="problem-solution">
@@ -790,35 +840,68 @@ export function Home({
                 f.get("licenseExpiry") || defaultExpiry.toISOString().slice(0, 10),
               );
 
+              const name = String(f.get("name") || "").trim();
+              const email = String(f.get("email") || "").trim();
+              const password = String(f.get("password") || "").trim();
+              const license = String(f.get("license") || "").trim();
+              const pharmacistName = String(f.get("pharmacistName") || "").trim();
+              const practiceLicense = String(f.get("practiceLicense") || "").trim();
+              const phone = String(f.get("phone") || "").trim();
+              const city = String(f.get("city") || "صنعاء").trim();
+              const address = String(f.get("address") || "").trim();
+              const commercialRegister = String(f.get("commercialRegister") || "").trim();
+              const taxNumber = String(f.get("taxNumber") || "").trim();
+
+              if (!password || password.length < 6 || password.length > 32) {
+                notify("يجب أن تتكون كلمة المرور من 6 إلى 32 خانة");
+                return;
+              }
+
               if (
                 await run({
                   type: actor.rejection ? "resubmit" : "register",
-                  name: String(f.get("name")),
-                  email: String(f.get("email")),
-                  password: String(f.get("password") || "123456"),
+                  name,
+                  email,
+                  password,
                   facilityType,
                   chainId: facilityType === "agency_branch" ? selectedChainId : undefined,
-                  license: String(f.get("license")),
-                  pharmacistName: String(f.get("pharmacistName") || ""),
-                  practiceLicense: String(f.get("practiceLicense") || ""),
-                  phone: String(f.get("phone") || ""),
-                  city: String(f.get("city") || "صنعاء"),
-                  address: String(f.get("address") || ""),
-                  commercialRegister: String(f.get("commercialRegister") || ""),
-                  taxNumber: String(f.get("taxNumber") || ""),
+                  license,
+                  pharmacistName,
+                  practiceLicense,
+                  phone,
+                  city,
+                  address,
+                  commercialRegister,
+                  taxNumber,
                   licenseExpiry: expiryStr,
                 })
               ) {
+                notify(actor.rejection ? "تم إعادة إرسال طلب المنشأة بنجاح! طلبك قيد تدقيق ومراجعة الإدارة." : "تم إرسال طلب تسجيل المنشأة بنجاح! طلبك قيد تدقيق ومراجعة الإدارة.");
                 setRegister(false);
               }
             }}
           >
-            <div className="info-strip mb-4">
-              <ShieldCheck size={18} />
-              <span>
-                التحقق والامتثال: يخضع هذا الطلب لتدقيق مدير المنصة ومطابقة بيانات التراخيص الصيدلانية الرسمية قبل التفعيل.
-              </span>
-            </div>
+            {actor.rejection ? (
+              <div className="notice danger mb-4 p-3 rounded-xl border border-red-200 bg-red-50 text-right">
+                <div className="flex items-center gap-2 mb-1">
+                  <AlertCircle size={18} className="text-red-600 shrink-0" />
+                  <strong className="text-red-900 text-xs font-bold">ملاحظات وقرار إدارة المنصة (سبب الرفض):</strong>
+                </div>
+                <div className="text-xs text-red-800 bg-white/90 p-2.5 rounded-lg border border-red-200 mt-1 font-semibold">
+                  {actor.rejection}
+                </div>
+                <span className="text-[11px] text-red-700 mt-1.5 block">
+                  يرجى مراجعة وتصحيح التراخيص والبيانات بالأسفل ثم الضغط على "إعادة إرسال الطلب".
+                </span>
+              </div>
+            ) : (
+              <div className="info-strip mb-4">
+                <ShieldCheck size={18} />
+                <span>
+                  التحقق والامتثال: يخضع هذا الطلب لتدقيق مدير المنصة ومطابقة بيانات التراخيص الصيدلانية الرسمية قبل التفعيل.
+                </span>
+              </div>
+            )}
 
             <div className="space-y-4">
               {/* القسم الأول: بيانات المنشأة وحساب الدخول */}
@@ -830,7 +913,7 @@ export function Home({
                   <Field
                     name="name"
                     label={facilityType === "agency_master" ? "اسم السلسلة / المجموعة الصيدلانية" : "اسم المنشأة / الصيدلية"}
-                    defaultValue={actor.role === "pending" ? actor.name : ""}
+                    defaultValue={actor.name || ""}
                     required
                   />
                   <div className="field">
@@ -881,8 +964,10 @@ export function Home({
                     name="password"
                     type="password"
                     label="كلمة المرور لمساحة العمل"
-                    placeholder="أدخل كلمة مرور قوية (6 خانات على الأقل)"
+                    placeholder="كلمة المرور (من 6 إلى 32 خانة)"
                     defaultValue={actor.password || ""}
+                    minLength={6}
+                    maxLength={32}
                     required
                   />
                 </div>
@@ -976,7 +1061,7 @@ export function Home({
                 إلغاء
               </Button>
               <Button type="submit" disabled={busy}>
-                إرسال الطلب للمراجعة والتدقيق
+                {actor.rejection ? "إعادة إرسال الطلب بعد التصحيح" : "إرسال الطلب للمراجعة والتدقيق"}
               </Button>
             </div>
           </Form>
